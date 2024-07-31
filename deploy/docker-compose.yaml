@@ -64,7 +64,7 @@ services:
       - 19090:9090
     volumes:
       - './yapr.yaml:/app/yapr.yaml'
-    command: ./yapr_echo_server --name=svr1 --addr=server-1:9090
+    command: ./yapr_echo_server --name=svr1 --addr=server-1:9090 --weight=1
     depends_on:
       - etcd
       - redis
@@ -79,7 +79,7 @@ services:
       - 19091:9090
     volumes:
       - './yapr.yaml:/app/yapr.yaml'
-    command: ./yapr_echo_server --name=svr2 --addr=server-2:9090
+    command: ./yapr_echo_server --name=svr2 --addr=server-2:9090 --weight=2
     depends_on:
       - etcd
       - redis
@@ -94,7 +94,7 @@ services:
       - 19092:9090
     volumes:
       - './yapr.yaml:/app/yapr.yaml'
-    command: ./yapr_echo_server --name=svr3 --addr=server-3:9090
+    command: ./yapr_echo_server --name=svr3 --addr=server-3:9090 --weight=3
     depends_on:
       - etcd
       - redis

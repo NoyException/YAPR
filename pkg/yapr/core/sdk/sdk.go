@@ -1,6 +1,7 @@
 package yaprsdk
 
 import (
+	"math"
 	"net"
 	"noy/router/pkg/yapr/config"
 	"noy/router/pkg/yapr/core"
@@ -47,6 +48,12 @@ func RegisterService(serviceName string, endpoints []*core.Endpoint) error {
 
 func SetEndpointAttribute(endpoint *core.Endpoint, selector string, attribute *core.Attr) error {
 	return store.MustStore().SetEndpointAttribute(endpoint, selector, attribute)
+}
+
+func ReportCost(endpoint *core.Endpoint, selector string, cost uint32) error {
+	return SetEndpointAttribute(endpoint, selector, &core.Attr{
+		Weight: math.MaxUint32 - cost,
+	})
 }
 
 func SetCustomRoute(selectorName, headerValue string, endpoint *core.Endpoint, timeout int64) error {

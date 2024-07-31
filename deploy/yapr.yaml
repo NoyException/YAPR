@@ -24,4 +24,4 @@ yapr:
     - name: "s1"
       service: "echosvr"
       port: 9090
-      strategy: "random"
+      strategy: "weighted_round_robin"

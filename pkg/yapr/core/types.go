@@ -24,8 +24,8 @@ const (
 	StrategyRoundRobin         = Strategy("round_robin")          // 轮询
 	StrategyWeightedRandom     = Strategy("weighted_random")      // 加权随机
 	StrategyWeightedRoundRobin = Strategy("weighted_round_robin") // 加权轮询
+	StrategyLeastCost          = Strategy("least_cost")           // 最少开销，开销越高权重越低
 	StrategyConsistentHash     = Strategy("consistent_hash")      // 一致性哈希
-	StrategyLeastActive        = Strategy("least_active")         // 最少活跃度，权重越高活跃度越低
 	StrategyDirect             = Strategy("direct")               // 指定目标路由
 )
 
@@ -36,13 +36,17 @@ type Endpoint struct {
 
 type Attr struct {
 	Weight   uint32 `yaml:"weight" json:"weight,omitempty"`     // 权重，默认为1
-	Deadline int64  `yaml:"deadline" json:"deadline,omitempty"` // 截止时间，单位毫秒，0表示永久
+	Deadline int64  `yaml:"deadline" json:"deadline,omitempty"` // 截止时间，单位毫秒，0表示永久，-1表示已过期仅在
 }
 
 type Service struct {
 	Name           string                        `yaml:"name" json:"name,omitempty"`          // #唯一名称
 	AttrMap        map[Endpoint]map[string]*Attr `yaml:"-" json:"attr_map,omitempty"`         // *每个endpoint和他在某个 Selector 中的属性【etcd中保存为slt/$Name/AttrMap_$Endpoint -> $Attr】
 	EndpointsByPod map[string][]*Endpoint        `yaml:"-" json:"endpoints_by_pod,omitempty"` // *每个pod对应的endpoints，【etcd不保存】
+
+	dirty      bool               // 是否需要更新endpoints
+	endpoints  []*Endpoint        // 所有的endpoints
+	attributes []map[string]*Attr // 所有的属性，idx和endpoints对应，selectorName -> attr
 
 	//EndpointsAddNtf chan *Endpoint // *Endpoints更新通知
 	//EndpointsDelNtf chan *Endpoint // *Endpoints删除通知
@@ -57,6 +61,8 @@ type Selector struct {
 	Strategy Strategy          `yaml:"strategy" json:"strategy,omitempty"` // #路由策略
 	Key      string            `yaml:"key" json:"key,omitempty"`           // #用于从header中获取路由用的value，仅在一致性哈希和指定目标策略下有效
 	//DirectMap    map[string]Endpoint `yaml:"-" json:"direct_map,omitempty"`      // 指定目标路由，从redis现存现取，表名$SelectorName，键值对为header value -> Endpoint
+
+	lastIdx uint32 // 上次选择的endpoint索引
 }
 
 // Rule 代表了一条路由规则，包含了匹配规则和目的地服务网格

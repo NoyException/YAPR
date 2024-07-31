@@ -146,82 +146,13 @@ func (s *Impl) GetServices() (map[string]*core.Service, error) {
 	defer cancel()
 
 	services := make(map[string]*core.Service)
-	response, err := s.etcdClient.Get(ctx, "svc/", clientv3.WithPrefix())
-	if err != nil {
-		return nil, err
-	}
-	for _, kv := range response.Kvs {
-		splits := strings.Split(string(kv.Key), "/")
-		if len(splits) != 3 {
-			logger.Warnf("invalid key: %s", kv.Key)
-			continue
-		}
-		name := splits[1]
-		id := splits[2]
-		if _, ok := services[name]; !ok {
-			services[name] = &core.Service{
-				Name:           name,
-				AttrMap:        make(map[core.Endpoint]map[string]*core.Attr),
-				EndpointsByPod: make(map[string][]*core.Endpoint),
-				//EndpointsAddNtf: make(chan *core.Endpoint, 100),
-				//EndpointsDelNtf: make(chan *core.Endpoint, 100),
-			}
-		}
-		service := services[name]
-		// 获取服务在某个pod下的所有节点
-		var endpoints []*core.Endpoint
-		err = json.Unmarshal(kv.Value, &endpoints)
-		if err != nil {
-			return nil, err
-		}
-		for _, endpoint := range endpoints {
-			service.AttrMap[*endpoint] = make(map[string]*core.Attr)
-		}
-		service.EndpointsByPod[id] = endpoints
-		// 获取服务的所有属性
-		response, err = s.etcdClient.Get(ctx, "attr/", clientv3.WithPrefix())
-		if err != nil {
-			return nil, err
-		}
-		for _, kv := range response.Kvs {
-			var attr core.Attr
-			err = json.Unmarshal(kv.Value, &attr)
-			if err != nil {
-				return nil, err
-			}
-			splits := strings.Split(string(kv.Key), "/")
-			if len(splits) != 3 {
-				logger.Warnf("invalid key: %s", kv.Key)
-				continue
-			}
-			selector := splits[1]
-			ip := splits[2]
-			endpoint := &core.Endpoint{
-				IP: ip,
-			}
-			if _, ok := service.AttrMap[*endpoint]; !ok {
-				continue
-			}
-			service.AttrMap[*endpoint][selector] = &attr
-		}
-		// 监听服务的属性变化
-		s.RegisterAttributeChangeListener(func(endpoint *core.Endpoint, selector string, attribute *core.Attr) {
-			if _, ok := service.AttrMap[*endpoint]; !ok {
-				return
-			}
-			service.AttrMap[*endpoint][selector] = attribute
-		})
-	}
 	// 监听服务的节点变化
 	s.RegisterServiceChangeListener(func(service string, isPut bool, pod string, endpoints []*core.Endpoint) {
 		svc := services[service]
+		svc.SetDirty()
 		if isPut {
 			for _, endpoint := range endpoints {
 				svc.AttrMap[*endpoint] = make(map[string]*core.Attr)
-				//select {
-				//case svc.EndpointsAddNtf <- endpoint:
-				//default:
-				//}
 			}
 			svc.EndpointsByPod[pod] = endpoints
 		} else {
@@ -235,14 +166,67 @@ func (s *Impl) GetServices() (map[string]*core.Service, error) {
 						logger.Errorf("failed to delete endpoint: %v in service %v", endpoint, service)
 					}
 				}
-				//select {
-				//case svc.EndpointsDelNtf <- endpoint:
-				//default:
-				//}
 			}
 			delete(svc.EndpointsByPod, pod)
 		}
 	})
+
+	// 获取所有服务
+	response, err := s.etcdClient.Get(ctx, "svc/", clientv3.WithPrefix())
+	if err != nil {
+		return nil, err
+	}
+	for _, kv := range response.Kvs {
+		splits := strings.Split(string(kv.Key), "/")
+		if len(splits) != 3 {
+			logger.Warnf("invalid key: %s", kv.Key)
+			continue
+		}
+		name := splits[1]
+		id := splits[2]
+		service, ok := services[name]
+		// 如果服务不存在，则创建一个新的服务
+		if !ok {
+			service = core.NewService(name)
+			services[name] = service
+			// 监听服务的属性变化
+			s.RegisterAttributeChangeListener(func(endpoint *core.Endpoint, selector string, attribute *core.Attr) {
+				service.SetAttribute(endpoint, selector, attribute)
+			})
+			// 获取服务的所有属性
+			response, err = s.etcdClient.Get(ctx, "attr/", clientv3.WithPrefix())
+			if err != nil {
+				return nil, err
+			}
+			for _, kv := range response.Kvs {
+				var attr core.Attr
+				err = json.Unmarshal(kv.Value, &attr)
+				if err != nil {
+					logger.Warnf("unmarshal attribute error: %v", err)
+					return nil, err
+				}
+				splits := strings.Split(string(kv.Key), "/")
+				if len(splits) != 3 {
+					logger.Warnf("invalid key: %s", kv.Key)
+					continue
+				}
+				selector := splits[1]
+				ip := splits[2]
+				endpoint := &core.Endpoint{
+					IP: ip,
+				}
+				service.SetAttribute(endpoint, selector, &attr)
+			}
+		}
+		// 获取服务在某个pod下的所有节点
+		var endpoints []*core.Endpoint
+		err = json.Unmarshal(kv.Value, &endpoints)
+		if err != nil {
+			return nil, err
+		}
+		service.EndpointsByPod[id] = endpoints
+		service.SetDirty()
+	}
 	return services, nil
 }
 

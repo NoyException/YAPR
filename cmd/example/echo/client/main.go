@@ -8,7 +8,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"log"
 	"noy/router/cmd/example/echo/echopb"
-	yaprsdk "noy/router/pkg/yapr/core/sdk"
+	"noy/router/pkg/yapr/core/sdk"
 	"noy/router/pkg/yapr/logger"
 	"time"
 )
