@@ -14,8 +14,8 @@ type Store interface {
 
 	RegisterService(service string, endpoints []*core.Endpoint) error
 	RegisterServiceChangeListener(listener func(service string, isPut bool, pod string, endpoints []*core.Endpoint)) // 如果autoupdate为true则不用监听
-	SetEndpointAttribute(endpoint *core.Endpoint, selector string, attribute *core.Attr) error
-	RegisterAttributeChangeListener(listener func(endpoint *core.Endpoint, selector string, attribute *core.Attr)) // 如果autoupdate为true则不用监听
+	SetEndpointAttribute(endpoint *core.Endpoint, selector string, attribute *core.Attribute) error
+	RegisterAttributeChangeListener(listener func(endpoint *core.Endpoint, selector string, attribute *core.Attribute)) // 如果autoupdate为true则不用监听
 
 	SetCustomRoute(selectorName, headerValue string, endpoint *core.Endpoint, timeout int64) error
 

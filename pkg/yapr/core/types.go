@@ -6,7 +6,7 @@ import "context"
 // 带有#的字段表示是会从配置文件中加载的字段
 
 type MatchTarget struct {
-	Uri  string          // 方法名
+	URI  string          // 方法名
 	Port uint32          // Router 端口
 	Ctx  context.Context // headers
 }
@@ -34,19 +34,19 @@ type Endpoint struct {
 	IP string `yaml:"ip" json:"ip,omitempty"` // ip
 }
 
-type Attr struct {
+type Attribute struct {
 	Weight   uint32 `yaml:"weight" json:"weight,omitempty"`     // 权重，默认为1
 	Deadline int64  `yaml:"deadline" json:"deadline,omitempty"` // 截止时间，单位毫秒，0表示永久，-1表示已过期仅在
 }
 
 type Service struct {
-	Name           string                        `yaml:"name" json:"name,omitempty"`          // #唯一名称
-	AttrMap        map[Endpoint]map[string]*Attr `yaml:"-" json:"attr_map,omitempty"`         // *每个endpoint和他在某个 Selector 中的属性【etcd中保存为slt/$Name/AttrMap_$Endpoint -> $Attr】
-	EndpointsByPod map[string][]*Endpoint        `yaml:"-" json:"endpoints_by_pod,omitempty"` // *每个pod对应的endpoints，【etcd不保存】
+	Name           string                             `yaml:"name" json:"name,omitempty"`          // #唯一名称
+	AttrMap        map[Endpoint]map[string]*Attribute `yaml:"-" json:"attr_map,omitempty"`         // *每个endpoint和他在某个 Selector 中的属性【etcd中保存为slt/$Name/AttrMap_$Endpoint -> $Attr】
+	EndpointsByPod map[string][]*Endpoint             `yaml:"-" json:"endpoints_by_pod,omitempty"` // *每个pod对应的endpoints，【etcd不保存】
 
-	dirty      bool               // 是否需要更新endpoints
-	endpoints  []*Endpoint        // 所有的endpoints
-	attributes []map[string]*Attr // 所有的属性，idx和endpoints对应，selectorName -> attr
+	dirty      bool                    // 是否需要更新endpoints
+	endpoints  []*Endpoint             // 所有的endpoints
+	attributes []map[string]*Attribute // 所有的属性，idx和endpoints对应，selectorName -> attr
 
 	//EndpointsAddNtf chan *Endpoint // *Endpoints更新通知
 	//EndpointsDelNtf chan *Endpoint // *Endpoints删除通知

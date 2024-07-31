@@ -24,7 +24,7 @@ func NewPicker(subConns map[string]balancer.SubConn, router *core.Router, port u
 func (y *yaprPicker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 	mt := &core.MatchTarget{
 		Port: y.port,
-		Uri:  info.FullMethodName,
+		URI:  info.FullMethodName,
 		Ctx:  info.Ctx,
 	}
 	service, endpoint, port, meta, err := y.router.Route(mt)

@@ -46,12 +46,12 @@ func RegisterService(serviceName string, endpoints []*core.Endpoint) error {
 	return store.MustStore().RegisterService(serviceName, endpoints)
 }
 
-func SetEndpointAttribute(endpoint *core.Endpoint, selector string, attribute *core.Attr) error {
+func SetEndpointAttribute(endpoint *core.Endpoint, selector string, attribute *core.Attribute) error {
 	return store.MustStore().SetEndpointAttribute(endpoint, selector, attribute)
 }
 
 func ReportCost(endpoint *core.Endpoint, selector string, cost uint32) error {
-	return SetEndpointAttribute(endpoint, selector, &core.Attr{
+	return SetEndpointAttribute(endpoint, selector, &core.Attribute{
 		Weight: math.MaxUint32 - cost,
 	})
 }

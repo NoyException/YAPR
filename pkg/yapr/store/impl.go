@@ -152,7 +152,7 @@ func (s *Impl) GetServices() (map[string]*core.Service, error) {
 		svc.SetDirty()
 		if isPut {
 			for _, endpoint := range endpoints {
-				svc.AttrMap[*endpoint] = make(map[string]*core.Attr)
+				svc.AttrMap[*endpoint] = make(map[string]*core.Attribute)
 			}
 			svc.EndpointsByPod[pod] = endpoints
 		} else {
@@ -190,7 +190,7 @@ func (s *Impl) GetServices() (map[string]*core.Service, error) {
 			service = core.NewService(name)
 			services[name] = service
 			// 监听服务的属性变化
-			s.RegisterAttributeChangeListener(func(endpoint *core.Endpoint, selector string, attribute *core.Attr) {
+			s.RegisterAttributeChangeListener(func(endpoint *core.Endpoint, selector string, attribute *core.Attribute) {
 				service.SetAttribute(endpoint, selector, attribute)
 			})
 			// 获取服务的所有属性
@@ -199,7 +199,7 @@ func (s *Impl) GetServices() (map[string]*core.Service, error) {
 				return nil, err
 			}
 			for _, kv := range response.Kvs {
-				var attr core.Attr
+				var attr core.Attribute
 				err = json.Unmarshal(kv.Value, &attr)
 				if err != nil {
 					logger.Warnf("unmarshal attribute error: %v", err)
@@ -295,7 +295,7 @@ func (s *Impl) RegisterServiceChangeListener(listener func(service string, isPut
 	}()
 }
 
-func (s *Impl) SetEndpointAttribute(endpoint *core.Endpoint, selector string, attribute *core.Attr) error {
+func (s *Impl) SetEndpointAttribute(endpoint *core.Endpoint, selector string, attribute *core.Attribute) error {
 	key := "attr/" + selector + "/" + endpoint.IP
 	bytes, err := json.Marshal(attribute)
 	if err != nil {
@@ -307,12 +307,12 @@ func (s *Impl) SetEndpointAttribute(endpoint *core.Endpoint, selector string, at
 	return err
 }
 
-func (s *Impl) RegisterAttributeChangeListener(listener func(endpoint *core.Endpoint, selector string, attribute *core.Attr)) {
+func (s *Impl) RegisterAttributeChangeListener(listener func(endpoint *core.Endpoint, selector string, attribute *core.Attribute)) {
 	go func() {
 		watchChan := s.etcdClient.Watch(context.Background(), "attr/", clientv3.WithPrefix())
 		for watchResp := range watchChan {
 			for _, event := range watchResp.Events {
-				attribute := &core.Attr{}
+				attribute := &core.Attribute{}
 				err := json.Unmarshal(event.Kv.Value, attribute)
 				if err != nil {
 					logger.Warnf("unmarshal attribute error: %v", err)

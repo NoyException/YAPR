@@ -3,7 +3,7 @@ package core
 func NewService(name string) *Service {
 	return &Service{
 		Name:           name,
-		AttrMap:        make(map[Endpoint]map[string]*Attr),
+		AttrMap:        make(map[Endpoint]map[string]*Attribute),
 		EndpointsByPod: make(map[string][]*Endpoint),
 		//EndpointsAddNtf: make(chan *core.Endpoint, 100),
 		//EndpointsDelNtf: make(chan *core.Endpoint, 100),
@@ -16,7 +16,7 @@ func (s *Service) SetDirty() {
 
 func (s *Service) update() {
 	endpoints := make([]*Endpoint, 0)
-	attributes := make([]map[string]*Attr, 0)
+	attributes := make([]map[string]*Attribute, 0)
 	for endpoint, attr := range s.AttrMap {
 		endpoints = append(endpoints, &endpoint)
 		attributes = append(attributes, attr)
@@ -33,18 +33,18 @@ func (s *Service) Endpoints() []*Endpoint {
 	return s.endpoints
 }
 
-func NewDefaultAttr() *Attr {
-	return &Attr{
+func NewDefaultAttr() *Attribute {
+	return &Attribute{
 		Weight:   1,
 		Deadline: 0,
 	}
 }
 
-func (s *Service) Attributes(selector string) []*Attr {
+func (s *Service) Attributes(selector string) []*Attribute {
 	if s.dirty {
 		s.update()
 	}
-	attrs := make([]*Attr, 0)
+	attrs := make([]*Attribute, 0)
 	for _, attrMap := range s.attributes {
 		if attr, ok := attrMap[selector]; ok {
 			attrs = append(attrs, attr)
@@ -57,10 +57,10 @@ func (s *Service) Attributes(selector string) []*Attr {
 	return attrs
 }
 
-func (s *Service) SetAttribute(endpoint *Endpoint, selector string, attr *Attr) {
+func (s *Service) SetAttribute(endpoint *Endpoint, selector string, attr *Attribute) {
 	m, ok := s.AttrMap[*endpoint]
 	if !ok {
-		m = make(map[string]*Attr)
+		m = make(map[string]*Attribute)
 		s.AttrMap[*endpoint] = m
 	}
 	m[selector] = attr

@@ -7,7 +7,7 @@ import (
 )
 
 func (m *Matcher) Match(target *MatchTarget) bool {
-	matched, err := regexp.Match(m.URI, []byte(target.Uri))
+	matched, err := regexp.Match(m.URI, []byte(target.URI))
 	if err != nil || !matched {
 		return false
 	}

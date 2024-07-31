@@ -63,7 +63,7 @@ func main() {
 			w = 1
 		}
 		yaprsdk.Init(*configPath)
-		err = yaprsdk.SetEndpointAttribute(endpoint, "s1", &core.Attr{
+		err = yaprsdk.SetEndpointAttribute(endpoint, "s1", &core.Attribute{
 			Weight: uint32(w),
 		})
 		if err != nil {
