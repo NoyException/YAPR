@@ -1,19 +1,10 @@
 package core
 
 import (
-	"fmt"
 	"google.golang.org/grpc/metadata"
+	"noy/router/pkg/yapr/logger"
 	"regexp"
 )
-
-var router *Router
-
-func MustRouter(name string) *Router {
-	if router == nil {
-		//router = NewRouter()
-	}
-	return router
-}
 
 func (m *Matcher) Match(target *MatchTarget) bool {
 	matched, err := regexp.Match(m.URI, []byte(target.Uri))
@@ -47,13 +38,27 @@ func (r *Rule) Match(target *MatchTarget) bool {
 	return false
 }
 
-func (r *Router) Route(target *MatchTarget) (*Selector, error) {
+func (r *Router) Route(target *MatchTarget) (string, *Endpoint, uint32, metadata.MD, error) {
 	for _, rule := range r.Rules {
 		if rule.Match(target) {
-			return r.SelectorByName[rule.Selector], nil
+			if selector, ok := r.SelectorByName[rule.Selector]; ok {
+				service, ok := r.ServiceByName[selector.Service]
+				if !ok {
+					logger.Warnf("service %s not found", selector.Service)
+					continue
+				}
+				endpoint, err := selector.Select(service)
+				if err != nil {
+					logger.Warnf("selector %s select failed: %v", rule.Selector, err)
+					continue
+				}
+				return selector.Service, endpoint, selector.Port, metadata.New(selector.Headers), nil
+			} else {
+				logger.Warnf("selector %s not found", rule.Selector)
+			}
 		}
 	}
-	return nil, fmt.Errorf("no rule matched")
+	return "", nil, 0, nil, ErrNoRuleMatched
 }
 
 func (r *Router) Selectors() []*Selector {

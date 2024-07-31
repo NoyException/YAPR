@@ -1,4 +1,4 @@
-package yapr
+package yaprgrpc
 
 import "google.golang.org/grpc"
 

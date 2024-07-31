@@ -6,7 +6,7 @@ ARG PROJECT_NAME
 
 WORKDIR /app
 
-COPY ../../../../ .
+COPY . .
 RUN go mod download
 RUN CGO_ENABLED=0 go build -o ${PROJECT_NAME} cmd/example/echo/server/main.go
 

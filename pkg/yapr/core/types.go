@@ -40,18 +40,22 @@ type Attr struct {
 }
 
 type Service struct {
-	Name    string                        `yaml:"name" json:"name,omitempty"`  // #唯一名称
-	AttrMap map[Endpoint]*map[string]Attr `yaml:"-" json:"attr_map,omitempty"` // *每个endpoint和他在某个 Selector 中的属性【etcd中保存为Selector_$Name/AttrMap_$Endpoint_$Selector -> $Attr】
+	Name           string                        `yaml:"name" json:"name,omitempty"`          // #唯一名称
+	AttrMap        map[Endpoint]map[string]*Attr `yaml:"-" json:"attr_map,omitempty"`         // *每个endpoint和他在某个 Selector 中的属性【etcd中保存为slt/$Name/AttrMap_$Endpoint -> $Attr】
+	EndpointsByPod map[string][]*Endpoint        `yaml:"-" json:"endpoints_by_pod,omitempty"` // *每个pod对应的endpoints，【etcd不保存】
+
+	//EndpointsAddNtf chan *Endpoint // *Endpoints更新通知
+	//EndpointsDelNtf chan *Endpoint // *Endpoints删除通知
 }
 
-// Selector 全名是Endpoint Selector，指定了目标service和选择策略【散装地存etcd】
+// Selector 全名是Endpoint Selector，指定了目标service和选择策略【以json格式存etcd】
 type Selector struct {
 	Name     string            `yaml:"name" json:"name,omitempty"`         // #唯一名称
 	Service  string            `yaml:"service" json:"service,omitempty"`   // #目标服务
 	Port     uint32            `yaml:"port" json:"port,omitempty"`         // #目标端口
 	Headers  map[string]string `yaml:"headers" json:"headers,omitempty"`   // #路由成功后为请求添加的headers
-	Strategy Strategy          `yaml:"strategy" json:"strategy,omitempty"` // #路由策略【etcd中保存为Selector_$Name/Strategy -> $Strategy】
-	Key      string            `yaml:"key" json:"key,omitempty"`           // #用于从header中获取路由用的value，仅在一致性哈希和指定目标策略下有效【etcd中保存为Selector_$Name/Key -> $HeaderKey】
+	Strategy Strategy          `yaml:"strategy" json:"strategy,omitempty"` // #路由策略
+	Key      string            `yaml:"key" json:"key,omitempty"`           // #用于从header中获取路由用的value，仅在一致性哈希和指定目标策略下有效
 	//DirectMap    map[string]Endpoint `yaml:"-" json:"direct_map,omitempty"`      // 指定目标路由，从redis现存现取，表名$SelectorName，键值对为header value -> Endpoint
 }
 
@@ -64,8 +68,14 @@ type Rule struct {
 
 // Router 代表了一个服务网格的所有路由规则【以json格式存etcd】
 type Router struct {
-	Name           string               `yaml:"name" json:"name,omitempty"`          // #服务网格名
-	Rules          []*Rule              `yaml:"rules" json:"rules,omitempty"`        // #路由规则，按优先级从高到低排序
-	SelectorByName map[string]*Selector `yaml:"-" json:"selector_by_name,omitempty"` // #所有路由选择器，用于快速查找
-	ServiceByName  map[string]*Service  `yaml:"-" json:"service_by_name,omitempty"`  // #所有服务，用于快速查找
+	Name           string               `yaml:"name" json:"name,omitempty"`   // #服务网格名
+	Rules          []*Rule              `yaml:"rules" json:"rules,omitempty"` // #路由规则，按优先级从高到低排序
+	SelectorByName map[string]*Selector `yaml:"-" json:"-"`                   // #所有路由选择器，用于快速查找
+	ServiceByName  map[string]*Service  `yaml:"-" json:"-"`                   // #所有服务，用于快速查找
+}
+
+// Config 代表了所有服务网格的配置【以yaml文件保存】
+type Config struct {
+	Routers   []*Router   `yaml:"routers" json:"routers,omitempty"`     // #所有服务网格
+	Selectors []*Selector `yaml:"selectors" json:"selectors,omitempty"` // #所有路由选择器
 }

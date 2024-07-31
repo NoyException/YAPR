@@ -1,47 +1,59 @@
 package store
 
 import (
-	"fmt"
-	"log"
+	"noy/router/pkg/yapr/config"
+	"noy/router/pkg/yapr/core"
+	"noy/router/pkg/yapr/logger"
 )
 
-// Store 是每个存储后端都需要实现的接口
 type Store interface {
-	GetString(key string) (string, error)
-	SetString(key, value string) error
-	// Close 关闭存储
-	Close() error
+	LoadConfig(config *core.Config) error
+	GetRouter(name string) (*core.Router, error)
+	GetSelectors() (map[string]*core.Selector, error)
+	GetServices() (map[string]*core.Service, error)
+
+	RegisterService(service string, endpoints []*core.Endpoint) error
+	RegisterServiceChangeListener(listener func(service string, isPut bool, pod string, endpoints []*core.Endpoint)) // 如果autoupdate为true则不用监听
+	SetEndpointAttribute(endpoint *core.Endpoint, selector string, attribute *core.Attr) error
+	RegisterAttributeChangeListener(listener func(endpoint *core.Endpoint, selector string, attribute *core.Attr)) // 如果autoupdate为true则不用监听
+
+	SetCustomRoute(selectorName, headerValue string, endpoint *core.Endpoint, timeout int64) error
+
+	Close()
 }
 
-var (
-	// _ Store = (*MemoryStore)(nil)
-	_ Store = (*SqlStore)(nil)
-	// _ Store = (*RedisStore)(nil)
-	_ Store = (*MongoStore)(nil)
-)
+var instance Store
 
-func Init(cfg *Config) (Store, error) {
-	if cfg == nil {
-		log.Println("[store] config is nil")
-		cfg = &Config{}
+func Init(cfg *config.Config) (Store, error) {
+	impl, err := NewImpl(cfg)
+	if err != nil {
+		return nil, err
 	}
-	var store Store
-	var err error
-
-	switch cfg.Type {
-	case TypeSqlite, TypeMysql, TypePostgres:
-		store, err = NewSqlStore(cfg.Type, cfg.URL)
-		if err != nil {
-			return store, err
-		}
-	case TypeMongo:
-		store, err = NewMongoStore(cfg.URL)
-		if err != nil {
-			return store, err
-		}
-	default:
-		return nil, fmt.Errorf("unsupported store type: %s", cfg.Type)
+	instance = impl
+	// 将数据存入etcd
+	err = impl.LoadConfig(cfg.Yapr)
+	if err != nil {
+		panic(err)
 	}
+	return impl, nil
+}
 
-	return store, err
+func MustStore() Store {
+	return instance
+}
+
+var routers = make(map[string]*core.Router)
+
+func GetRouter(name string) (*core.Router, error) {
+	if router, ok := routers[name]; ok {
+		return router, nil
+	}
+	s := MustStore()
+	router, err := s.GetRouter(name)
+	if err != nil {
+		logger.Errorf("router %s not found", name)
+		return nil, err
+	}
+	routers[name] = router
+	return router, nil
 }

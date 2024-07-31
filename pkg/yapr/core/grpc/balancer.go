@@ -1,4 +1,4 @@
-package yapr
+package yaprgrpc
 
 import (
 	"errors"
@@ -9,10 +9,10 @@ import (
 	"google.golang.org/grpc/resolver"
 	"noy/router/pkg/yapr/core"
 	"noy/router/pkg/yapr/logger"
-	"sync"
 )
 
-func init() {
+func init() { // nolint:gochecknoinits
+	logger.Infof("init yaprgrpc balancer")
 	balancer.Register(&yaprBalancerBuilder{})
 }
 
@@ -42,8 +42,7 @@ func (y *yaprBalancerBuilder) Name() string {
 }
 
 type yaprBalancer struct {
-	cc   balancer.ClientConn
-	rwMu sync.RWMutex
+	cc balancer.ClientConn
 
 	csEvltr *balancer.ConnectivityStateEvaluator
 	state   connectivity.State
@@ -61,27 +60,44 @@ type yaprBalancer struct {
 
 var _ balancer.Balancer = (*yaprBalancer)(nil)
 
+func (y *yaprBalancer) ResolverError(err error) {
+	y.resolverErr = err
+	if len(y.subConns) == 0 {
+		y.state = connectivity.TransientFailure
+	}
+
+	if y.state != connectivity.TransientFailure {
+		// The picker will not change since the balancer does not currently report an error.
+		return
+	}
+
+	y.regeneratePicker()
+	y.cc.UpdateState(balancer.State{ConnectivityState: y.state, Picker: y.picker})
+}
+
 func (y *yaprBalancer) UpdateClientConnState(state balancer.ClientConnState) error {
+	y.resolverErr = nil
+
 	if state.ResolverState.Attributes == nil {
+		logger.Error("attributes is nil")
 		y.ResolverError(errors.New("attributes is nil"))
 		return balancer.ErrBadResolverState
 	}
 	y.router = state.ResolverState.Attributes.Value("router").(*core.Router)
 	y.port = state.ResolverState.Attributes.Value("port").(uint32)
-
 	if len(state.ResolverState.Endpoints) == 0 {
+		logger.Error("no endpoints")
 		y.ResolverError(errors.New("no endpoints"))
 		return balancer.ErrBadResolverState
 	}
 
-	y.ResolverError(nil)
 	newSubConns := make(map[string]balancer.SubConn)
 	for _, endpoint := range state.ResolverState.Endpoints {
 		service := endpoint.Attributes.Value("service").(*core.Service)
 		for _, addr := range endpoint.Addresses {
 			key := service.Name + ":" + addr.Addr
 			// 跳过已经存在的连接
-			if subConn, ok := y.subConns[addr.Addr]; ok {
+			if subConn, ok := y.subConns[key]; ok {
 				newSubConns[key] = subConn
 				continue
 			}
@@ -95,6 +111,7 @@ func (y *yaprBalancer) UpdateClientConnState(state balancer.ClientConnState) err
 				},
 			})
 			if err != nil {
+				logger.Warnf("failed to create new SubConn: %v", err)
 				y.ResolverError(err)
 				continue
 			}
@@ -111,40 +128,52 @@ func (y *yaprBalancer) UpdateClientConnState(state balancer.ClientConnState) err
 		}
 	}
 	y.subConns = newSubConns
-	y.picker = NewPicker(y.subConns, y.router, y.port)
+	if len(y.subConns) == 0 {
+		y.ResolverError(core.ErrNoEndpointAvailable)
+		return balancer.ErrBadResolverState
+	}
+
+	y.regeneratePicker()
+	y.cc.UpdateState(balancer.State{ConnectivityState: y.state, Picker: y.picker})
 	return nil
 }
 
-func (y *yaprBalancer) errorPicker() balancer.Picker {
-	return base.NewErrPicker(fmt.Errorf("connection error: %v, resolver error: %v", y.connErr, y.resolverErr))
+// mergeErrors builds an error from the last connection error and the last
+// resolver error.  Must only be called if b.state is TransientFailure.
+func (y *yaprBalancer) mergeErrors() error {
+	// connErr must always be non-nil unless there are no SubConns, in which
+	// case resolverErr must be non-nil.
+	if y.connErr == nil {
+		return fmt.Errorf("last resolver error: %v", y.resolverErr)
+	}
+	if y.resolverErr == nil {
+		return fmt.Errorf("last connection error: %v", y.connErr)
+	}
+	return fmt.Errorf("last connection error: %v; last resolver error: %v", y.connErr, y.resolverErr)
 }
 
-func (y *yaprBalancer) ResolverError(err error) {
-	y.resolverErr = err
-	if len(y.subConns) == 0 {
-		y.state = connectivity.TransientFailure
-	}
-
-	if y.state != connectivity.TransientFailure {
-		// The picker will not change since the balancer does not currently report an error.
+func (y *yaprBalancer) regeneratePicker() {
+	if y.state == connectivity.TransientFailure {
+		y.picker = base.NewErrPicker(y.mergeErrors())
 		return
 	}
-	y.cc.UpdateState(balancer.State{
-		ConnectivityState: y.state,
-		Picker:            y.errorPicker(),
-	})
+	//TODO: 过滤掉不可用的连接
+	y.picker = NewPicker(y.subConns, y.router, y.port)
 }
 
 // UpdateSubConnState 弃用的方法（gRPC遗留问题）
-func (y *yaprBalancer) UpdateSubConnState(subConn balancer.SubConn, state balancer.SubConnState) {}
+func (y *yaprBalancer) UpdateSubConnState(subConn balancer.SubConn, state balancer.SubConnState) {
+	logger.Errorf("UpdateSubConnState(%v, %+v) called unexpectedly", subConn, state)
+}
+
 func (y *yaprBalancer) updateSubConnState(subConn balancer.SubConn, state balancer.SubConnState) {
 	s := state.ConnectivityState
-
 	oldS, ok := y.scStates[subConn]
 	if !ok {
 		logger.Debugf("Balancer got state changes for an unknown SubConn: %p, %v", subConn, s)
 		return
 	}
+	logger.Infof("handle SubConn state change: %p, from %v to %v", subConn, oldS, s)
 
 	if oldS == connectivity.TransientFailure &&
 		(s == connectivity.Connecting || s == connectivity.Idle) {
@@ -171,15 +200,17 @@ func (y *yaprBalancer) updateSubConnState(subConn balancer.SubConn, state balanc
 	}
 
 	y.state = y.csEvltr.RecordTransition(oldS, s)
-	picker := y.picker
 
 	if (s == connectivity.Ready) != (oldS == connectivity.Ready) ||
 		y.state == connectivity.TransientFailure {
-		picker = y.errorPicker()
+		y.regeneratePicker()
 	}
-	y.cc.UpdateState(balancer.State{ConnectivityState: y.state, Picker: picker})
+	y.cc.UpdateState(balancer.State{ConnectivityState: y.state, Picker: y.picker})
 }
 
 // Close is a nop because the balancer doesn't need to call Shutdown for the SubConns.
 func (y *yaprBalancer) Close() {
+}
+
+func (y *yaprBalancer) ExitIdle() {
 }

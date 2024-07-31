@@ -2,16 +2,9 @@ package config
 
 import (
 	"gopkg.in/yaml.v3"
-	"noy/router/pkg/router/store"
+	"noy/router/pkg/yapr/core"
 	"os"
 	"time"
-)
-
-const (
-	DefaultElectionPath      = "/mytest/election"
-	DefaultElectionTTL       = 5
-	DefaultLoadBalancerType  = "least_tasks"
-	DefaultLoadBalancerRetry = 3
 )
 
 type Config struct {
@@ -19,8 +12,7 @@ type Config struct {
 	Etcd *ETCDConfig `yaml:"etcd"`
 	// redis 集群配置
 	Redis *RedisConfig `yaml:"redis"`
-	// 存储后端类型
-	Store *store.Config `yaml:"store"`
+	Yapr  *core.Config `yaml:"yapr"`
 }
 
 // ETCDConfig etcd 集群配置

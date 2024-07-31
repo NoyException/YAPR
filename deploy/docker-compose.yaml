@@ -15,32 +15,32 @@ services:
       - 2380:2380
     networks:
       - app-tier
-  mongodb:
-    image: mongo:latest
-    container_name: mongodb
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: MOCK_SECRET_KEY_ID
-      MONGO_INITDB_ROOT_PASSWORD: MOCK_SECRET_KEY_VALUE
-    ports:
-      - "27017:27017"
-    volumes:
-      - '.dbdata/mongo:/data/db'
-    networks:
-      - app-tier
-  mongo-express:
-    image: mongo-express:latest
-    container_name: mongo-express
-    environment:
-      ME_CONFIG_MONGODB_ADMINUSERNAME: MOCK_SECRET_KEY_ID
-      ME_CONFIG_MONGODB_ADMINPASSWORD: MOCK_SECRET_KEY_VALUE
-      ME_CONFIG_MONGODB_SERVER: mongodb
-      ME_CONFIG_MONGODB_PORT: "27017"
-    ports:
-      - "28017:8081"
-    depends_on:
-      - mongodb
-    networks:
-      - app-tier
+#  mongodb:
+#    image: mongo:latest
+#    container_name: mongodb
+#    environment:
+#      MONGO_INITDB_ROOT_USERNAME: MOCK_SECRET_KEY_ID
+#      MONGO_INITDB_ROOT_PASSWORD: MOCK_SECRET_KEY_VALUE
+#    ports:
+#      - "27017:27017"
+#    volumes:
+#      - '.dbdata/mongo:/data/db'
+#    networks:
+#      - app-tier
+#  mongo-express:
+#    image: mongo-express:latest
+#    container_name: mongo-express
+#    environment:
+#      ME_CONFIG_MONGODB_ADMINUSERNAME: MOCK_SECRET_KEY_ID
+#      ME_CONFIG_MONGODB_ADMINPASSWORD: MOCK_SECRET_KEY_VALUE
+#      ME_CONFIG_MONGODB_SERVER: mongodb
+#      ME_CONFIG_MONGODB_PORT: "27017"
+#    ports:
+#      - "28017:8081"
+#    depends_on:
+#      - mongodb
+#    networks:
+#      - app-tier
   redis:
     image: 'bitnami/redis:latest'
     container_name: redis
@@ -55,16 +55,61 @@ services:
       - '.dbdata/redis:/bitnami/redis'
     networks:
       - app-tier
-  yapr:
-    image: 'noy/yapr:latest'
-    container_name: test-1
+  server-1:
+    image: 'noy/echoserver:latest'
+    container_name: server-1
     restart: always
     ports:
       - 18080:8080
       - 19090:9090
     volumes:
-      - './config.yaml:/app/config.yaml'
-    command: ./yapr --name=test1 --addr=test-1:9090 --httpAddr=:8080
+      - './yapr.yaml:/app/yapr.yaml'
+    command: ./yapr_echo_server --name=svr1 --addr=server-1:9090
+    depends_on:
+      - etcd
+      - redis
+    networks:
+      - app-tier
+  server-2:
+    image: 'noy/echoserver:latest'
+    container_name: server-2
+    restart: always
+    ports:
+      - 18081:8080
+      - 19091:9090
+    volumes:
+      - './yapr.yaml:/app/yapr.yaml'
+    command: ./yapr_echo_server --name=svr2 --addr=server-2:9090
+    depends_on:
+      - etcd
+      - redis
+    networks:
+      - app-tier
+  server-3:
+    image: 'noy/echoserver:latest'
+    container_name: server-3
+    restart: always
+    ports:
+      - 18082:8080
+      - 19092:9090
+    volumes:
+      - './yapr.yaml:/app/yapr.yaml'
+    command: ./yapr_echo_server --name=svr3 --addr=server-3:9090
+    depends_on:
+      - etcd
+      - redis
+    networks:
+      - app-tier
+  client-1:
+    image: 'noy/echoclient:latest'
+    container_name: client-1
+    restart: always
+    ports:
+      - 18090:8080
+      - 19080:9090
+    volumes:
+      - './yapr.yaml:/app/yapr.yaml'
+    command: ./yapr_echo_client --name=cli3 --addr=client-1:9090
     depends_on:
       - etcd
       - redis

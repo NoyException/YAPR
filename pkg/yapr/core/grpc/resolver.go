@@ -1,4 +1,4 @@
-package yapr
+package yaprgrpc
 
 import (
 	"context"
@@ -8,12 +8,14 @@ import (
 	"google.golang.org/grpc/resolver"
 	"noy/router/pkg/yapr/core"
 	"noy/router/pkg/yapr/logger"
+	"noy/router/pkg/yapr/store"
 	"strconv"
 	"strings"
 	"time"
 )
 
 func init() { // nolint:gochecknoinits
+	logger.Infof("init yaprgrpc resolver")
 	resolver.Register(&yaprResolverBuilder{})
 }
 
@@ -23,7 +25,9 @@ type yaprResolverBuilder struct {
 var _ resolver.Builder = (*yaprResolverBuilder)(nil)
 
 func (r *yaprResolverBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
+	//logger.Debugf("target: %+v", target)
 	host, port, err := parseTarget(target.Endpoint())
+	//logger.Debugf("host: %s, port: %d", host, port)
 	if err != nil {
 		return nil, err
 	}
@@ -82,11 +86,14 @@ func (y *yaprResolver) watcher() {
 		case <-ticker.C:
 		}
 
-		router := core.MustRouter(y.routerName)
-		if router != nil {
+		router, err := store.GetRouter(y.routerName)
+		if err == nil && router != nil {
+			serviceConfigJSON := fmt.Sprintf(`{"loadBalancingConfig":[{"%s":{}}]}`, "yapr")
+			config := y.cc.ParseServiceConfig(serviceConfigJSON)
 			err := y.cc.UpdateState(resolver.State{
-				Endpoints:  y.Endpoints(router),
-				Attributes: attributes.New("router", router).WithValue("port", y.port),
+				Endpoints:     y.Endpoints(router),
+				Attributes:    attributes.New("router", router).WithValue("port", y.port),
+				ServiceConfig: config,
 			})
 			if err != nil {
 				logger.Warnf("update resolver state error: %v", err)
@@ -128,7 +135,7 @@ func parseTarget(target string) (string, uint32, error) {
 		return "", 0, errors.New("error format routerName")
 	}
 	if len(splits) == 1 {
-		return target, 6100, nil
+		return target, 9090, nil
 	}
 	port, err := strconv.ParseUint(splits[1], 10, 32)
 	if err != nil {

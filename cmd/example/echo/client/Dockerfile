@@ -1,4 +1,4 @@
-ARG PROJECT_NAME=yapr_echo_server
+ARG PROJECT_NAME=yapr_echo_client
 
 # build stage
 FROM golang:1.22 as builder
@@ -6,9 +6,9 @@ ARG PROJECT_NAME
 
 WORKDIR /app
 
-COPY ../../../../ .
+COPY . .
 RUN go mod download
-RUN CGO_ENABLED=0 go build -o ${PROJECT_NAME} cmd/example/echo/server/main.go
+RUN CGO_ENABLED=0 go build -o ${PROJECT_NAME} cmd/example/echo/client/main.go
 
 # target stage
 FROM alpine:latest

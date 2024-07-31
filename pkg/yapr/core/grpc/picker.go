@@ -1,9 +1,10 @@
-package yapr
+package yaprgrpc
 
 import (
 	"google.golang.org/grpc/balancer"
-	"google.golang.org/grpc/metadata"
 	"noy/router/pkg/yapr/core"
+	"noy/router/pkg/yapr/logger"
+	"strconv"
 )
 
 type yaprPicker struct {
@@ -26,16 +27,19 @@ func (y *yaprPicker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 		Uri:  info.FullMethodName,
 		Ctx:  info.Ctx,
 	}
-	selector, err := y.router.Route(mt)
+	service, endpoint, port, meta, err := y.router.Route(mt)
 	if err != nil {
 		return balancer.PickResult{}, err
 	}
-	endpoint, err := selector.Select(mt)
-	if err != nil {
-		return balancer.PickResult{}, err
+	key := service + ":" + endpoint.IP + ":" + strconv.FormatUint(uint64(port), 10)
+	logger.Debugf("select %v", key)
+	subConn, ok := y.subConns[key]
+	if !ok {
+		logger.Warnf("subConn not found %v", key)
+		return balancer.PickResult{}, balancer.ErrNoSubConnAvailable
 	}
 	return balancer.PickResult{
-		SubConn:  y.subConns[endpoint.IP],
-		Metadata: metadata.New(selector.Headers),
+		SubConn:  subConn,
+		Metadata: meta,
 	}, nil
 }
