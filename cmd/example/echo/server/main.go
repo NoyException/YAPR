@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"log"
 	"net"
 	"noy/router/cmd/example/echo/echopb"
@@ -27,9 +28,23 @@ var (
 
 type EchoServer struct {
 	echopb.UnimplementedEchoServiceServer
+
+	Endpoint *core.Endpoint
 }
 
 func (e *EchoServer) Echo(ctx context.Context, request *echopb.EchoRequest) (*echopb.EchoResponse, error) {
+	md, exist := metadata.FromIncomingContext(ctx)
+	if exist {
+		values := md.Get("x-uid")
+		if len(values) > 0 {
+			uid := values[0]
+			logger.Debugf("uid: %s", uid)
+			err := yaprsdk.SetCustomRoute("echo-dir", uid, e.Endpoint, 0)
+			if err != nil {
+				logger.Errorf("set custom route error: %v", err)
+			}
+		}
+	}
 	return &echopb.EchoResponse{Message: *name + ": " + request.Message}, nil
 }
 
@@ -50,13 +65,15 @@ func main() {
 	}
 	s := grpc.NewServer()
 	defer s.Stop()
-	echopb.RegisterEchoServiceServer(s, &EchoServer{})
+	endpoint := &core.Endpoint{
+		IP: strings.Split(*addr, ":")[0],
+	}
+	echopb.RegisterEchoServiceServer(s, &EchoServer{
+		Endpoint: endpoint,
+	})
 
 	go func() {
 		time.Sleep(1 * time.Millisecond)
-		endpoint := &core.Endpoint{
-			IP: strings.Split(*addr, ":")[0],
-		}
 		w, err := strconv.ParseUint(*weight, 10, 32)
 		if err != nil {
 			logger.Warnf("convert weight error: %v", err)

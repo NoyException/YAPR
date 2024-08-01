@@ -18,7 +18,8 @@ func Init(configPath string) {
 		if err != nil {
 			panic(err)
 		}
-		_, err = store.Init(cfg)
+		st, err := store.NewImpl(cfg)
+		core.RegisterStore(st)
 		if err != nil {
 			panic(err)
 		}
@@ -43,11 +44,11 @@ func GetLocalEndpoint() (*core.Endpoint, error) {
 }
 
 func RegisterService(serviceName string, endpoints []*core.Endpoint) error {
-	return store.MustStore().RegisterService(serviceName, endpoints)
+	return core.MustStore().RegisterService(serviceName, endpoints)
 }
 
 func SetEndpointAttribute(endpoint *core.Endpoint, selector string, attribute *core.Attribute) error {
-	return store.MustStore().SetEndpointAttribute(endpoint, selector, attribute)
+	return core.MustStore().SetEndpointAttribute(endpoint, selector, attribute)
 }
 
 func ReportCost(endpoint *core.Endpoint, selector string, cost uint32) error {
@@ -57,5 +58,5 @@ func ReportCost(endpoint *core.Endpoint, selector string, cost uint32) error {
 }
 
 func SetCustomRoute(selectorName, headerValue string, endpoint *core.Endpoint, timeout int64) error {
-	return store.MustStore().SetCustomRoute(selectorName, headerValue, endpoint, timeout)
+	return core.MustStore().SetCustomRoute(selectorName, headerValue, endpoint, timeout)
 }

@@ -6,6 +6,22 @@ import (
 	"regexp"
 )
 
+var routers = make(map[string]*Router)
+
+func GetRouter(name string) (*Router, error) {
+	if router, ok := routers[name]; ok {
+		return router, nil
+	}
+	s := MustStore()
+	router, err := s.GetRouter(name)
+	if err != nil {
+		logger.Errorf("router %s not found", name)
+		return nil, err
+	}
+	routers[name] = router
+	return router, nil
+}
+
 func (m *Matcher) Match(target *MatchTarget) bool {
 	matched, err := regexp.Match(m.URI, []byte(target.URI))
 	if err != nil || !matched {
@@ -15,7 +31,7 @@ func (m *Matcher) Match(target *MatchTarget) bool {
 		return false
 	}
 	if m.Headers != nil {
-		md, ok := metadata.FromOutgoingContext(target.Ctx)
+		md, ok := metadata.FromIncomingContext(target.Ctx)
 		if !ok {
 			return false
 		}
@@ -47,9 +63,9 @@ func (r *Router) Route(target *MatchTarget) (string, *Endpoint, uint32, metadata
 					logger.Warnf("service %s not found", selector.Service)
 					continue
 				}
-				endpoint, err := selector.Select(service)
+				endpoint, err := selector.Select(service, target)
 				if err != nil {
-					logger.Warnf("selector %s select failed: %v", rule.Selector, err)
+					logger.Infof("selector %s select failed: %v, move to the next rule", rule.Selector, err)
 					continue
 				}
 				return selector.Service, endpoint, selector.Port, metadata.New(selector.Headers), nil

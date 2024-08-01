@@ -24,6 +24,35 @@ type Impl struct {
 	setCustomRouteSha1 string
 }
 
+var _ core.Store = (*Impl)(nil)
+
+func NewImpl(cfg *config.Config) (*Impl, error) { // 初始化 etcd 客户端
+	etcdClient, err := etcd.NewClient(cfg.Etcd)
+	if err != nil {
+		panic(err)
+	}
+
+	// 初始化 redis 客户端
+	opt, err := redis.ParseURL(cfg.Redis.Url)
+	if err != nil {
+		panic(err)
+	}
+	redisClient := redis.NewClient(opt)
+
+	newImpl := &Impl{
+		etcdClient:  etcdClient,
+		redisClient: redisClient,
+
+		uuid: uuid.New().String(),
+	}
+
+	err = newImpl.LoadConfig(cfg.Yapr)
+	if err != nil {
+		panic(err)
+	}
+	return newImpl, nil
+}
+
 func (s *Impl) LoadConfig(config *core.Config) error {
 	session, err := concurrency.NewSession(s.etcdClient, concurrency.WithTTL(5))
 	if err != nil {
@@ -49,13 +78,16 @@ func (s *Impl) LoadConfig(config *core.Config) error {
 	}()
 
 	// 检查数据是否已加载
-	response, err := s.etcdClient.Get(ctx, "ready")
+	response, err := s.etcdClient.Get(ctx, "version")
 	if err != nil {
 		return err
 	}
-	if len(response.Kvs) > 0 && string(response.Kvs[0].Value) == "true" {
-		logger.Info("config is already loaded")
-		return nil
+	if len(response.Kvs) > 0 {
+		etcdVersion := string(response.Kvs[0].Value)
+		if etcdVersion >= config.Version {
+			logger.Info("config is already loaded")
+			return nil
+		}
 	}
 
 	for _, selector := range config.Selectors {
@@ -86,7 +118,7 @@ func (s *Impl) LoadConfig(config *core.Config) error {
 		}
 	}
 	logger.Infof("%d routers loaded", len(config.Routers))
-	_, err = s.etcdClient.Put(ctx, "ready", "true")
+	_, err = s.etcdClient.Put(ctx, "version", config.Version)
 	logger.Infof("config loaded")
 	return err
 }
@@ -342,7 +374,12 @@ local endpoint = ARGV[1]
 local timeout = tonumber(ARGV[2])
 local currentTime = redis.call("TIME")
 local currentTimeMillis = tonumber(currentTime[1]) * 1000 + tonumber(currentTime[2]) / 1000
-local deadline = currentTimeMillis + timeout
+local deadline
+if timeout == 0 then
+    deadline = -1
+else
+    deadline = currentTimeMillis + timeout
+end
 
 local endpointTable = "_end_point_" .. selectorName
 local ddlTable = "_ddl_" .. selectorName
@@ -353,7 +390,7 @@ local existingDDL = redis.call("HGET", ddlTable, headerValue)
 
 if existing and existingDDL then
 	local ddl = tonumber(existingDDL)
-	if currentTimeMillis < ddl or ddl == 0 then
+	if currentTimeMillis < ddl or ddl == -1 then
     	return 1 -- 键值对已存在且未过期，插入失败
 	end
 end
@@ -372,7 +409,7 @@ return 0 -- 键值对不存在或已过期，插入成功
 	}
 
 	// 执行 Lua 脚本
-	res, err := s.redisClient.EvalSha(context.Background(), s.setCustomRouteSha1, []string{selectorName, headerValue}, endpoint, timeout).Result()
+	res, err := s.redisClient.EvalSha(context.Background(), s.setCustomRouteSha1, []string{selectorName, headerValue}, endpoint.IP, timeout).Result()
 	if err != nil {
 		return err
 	}
@@ -380,6 +417,19 @@ return 0 -- 键值对不存在或已过期，插入成功
 		return core.ErrRouteAlreadyExists
 	}
 	return nil
+}
+
+func (s *Impl) GetCustomRoute(selectorName, headerValue string) (*core.Endpoint, error) {
+	endpoint, err := s.redisClient.HGet(context.Background(), "_end_point_"+selectorName, headerValue).Result()
+	if err != nil {
+		return nil, err
+	}
+	if endpoint == "" {
+		return nil, core.ErrNoCustomRoute
+	}
+	return &core.Endpoint{
+		IP: endpoint,
+	}, nil
 }
 
 func (s *Impl) Close() {
@@ -390,27 +440,4 @@ func (s *Impl) Close() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = s.redisClient.Shutdown(ctx)
-}
-
-var _ Store = (*Impl)(nil)
-
-func NewImpl(cfg *config.Config) (*Impl, error) { // 初始化 etcd 客户端
-	etcdClient, err := etcd.NewClient(cfg.Etcd)
-	if err != nil {
-		panic(err)
-	}
-
-	// 初始化 redis 客户端
-	opt, err := redis.ParseURL(cfg.Redis.Url)
-	if err != nil {
-		panic(err)
-	}
-	redisClient := redis.NewClient(opt)
-
-	return &Impl{
-		etcdClient:  etcdClient,
-		redisClient: redisClient,
-
-		uuid: uuid.New().String(),
-	}, nil
 }

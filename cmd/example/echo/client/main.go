@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"log"
+	"math/rand/v2"
 	"noy/router/cmd/example/echo/echopb"
 	"noy/router/pkg/yapr/core/sdk"
 	"noy/router/pkg/yapr/logger"
@@ -41,9 +43,11 @@ func main() {
 	}
 	client := echopb.NewEchoServiceClient(conn)
 	ticker := time.NewTicker(2 * time.Second)
-
+	uids := []string{"10001", "10002", "10003", "10004", "10005"}
 	for range ticker.C {
-		response, err := client.Echo(context.Background(), &echopb.EchoRequest{Message: "Hello world"})
+		uid := uids[rand.IntN(len(uids))]
+		ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("x-uid", uid))
+		response, err := client.Echo(ctx, &echopb.EchoRequest{Message: "Hello world from user " + uid})
 		if err != nil {
 			log.Fatalf(err.Error())
 		}

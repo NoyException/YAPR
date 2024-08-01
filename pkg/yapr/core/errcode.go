@@ -9,4 +9,7 @@ var (
 	ErrServiceNotFound     = fmt.Errorf("service not found")
 	ErrNoEndpointAvailable = fmt.Errorf("no endpoint available")
 	ErrNoRuleMatched       = fmt.Errorf("no rule matched")
+	ErrNoCustomRoute       = fmt.Errorf("no custom route")
+	ErrNoKeyAvailable      = fmt.Errorf("no key available (for stateful routing)")
+	ErrNoValueAvailable    = fmt.Errorf("no value available (for stateful routing)")
 )

@@ -82,6 +82,7 @@ type Router struct {
 
 // Config 代表了所有服务网格的配置【以yaml文件保存】
 type Config struct {
+	Version   string      `yaml:"version" json:"version,omitempty"`     // #版本号
 	Routers   []*Router   `yaml:"routers" json:"routers,omitempty"`     // #所有服务网格
 	Selectors []*Selector `yaml:"selectors" json:"selectors,omitempty"` // #所有路由选择器
 }

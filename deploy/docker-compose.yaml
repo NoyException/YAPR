@@ -15,32 +15,6 @@ services:
       - 2380:2380
     networks:
       - app-tier
-#  mongodb:
-#    image: mongo:latest
-#    container_name: mongodb
-#    environment:
-#      MONGO_INITDB_ROOT_USERNAME: MOCK_SECRET_KEY_ID
-#      MONGO_INITDB_ROOT_PASSWORD: MOCK_SECRET_KEY_VALUE
-#    ports:
-#      - "27017:27017"
-#    volumes:
-#      - '.dbdata/mongo:/data/db'
-#    networks:
-#      - app-tier
-#  mongo-express:
-#    image: mongo-express:latest
-#    container_name: mongo-express
-#    environment:
-#      ME_CONFIG_MONGODB_ADMINUSERNAME: MOCK_SECRET_KEY_ID
-#      ME_CONFIG_MONGODB_ADMINPASSWORD: MOCK_SECRET_KEY_VALUE
-#      ME_CONFIG_MONGODB_SERVER: mongodb
-#      ME_CONFIG_MONGODB_PORT: "27017"
-#    ports:
-#      - "28017:8081"
-#    depends_on:
-#      - mongodb
-#    networks:
-#      - app-tier
   redis:
     image: 'bitnami/redis:latest'
     container_name: redis
@@ -158,16 +132,3 @@ services:
       - '--redis.addr=redis://:noy@redis:6379'
     networks:
       - app-tier
-  # cadvisor:
-  #   image: google/cadvisor
-  #   container_name: cadvisor
-  #   restart: always
-  #   ports:
-  #     - "8081:8080"
-  #   volumes:
-  #     - '/:/rootfs:ro'
-  #     - '/var/run:/var/run:rw'
-  #     - '/sys:/sys:ro'
-  #     - '/var/lib/docker/:/var/lib/docker:ro'
-  #   networks:
-  #     - app-tier
