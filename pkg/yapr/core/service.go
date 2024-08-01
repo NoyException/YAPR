@@ -1,10 +1,25 @@
 package core
 
+import "noy/router/pkg/yapr/core/types"
+
+type Service struct {
+	Name           string                                         `yaml:"name" json:"name,omitempty"`          // #唯一名称
+	AttrMap        map[types.Endpoint]map[string]*types.Attribute `yaml:"-" json:"attr_map,omitempty"`         // *每个endpoint和他在某个 Selector 中的属性【etcd中保存为slt/$Name/AttrMap_$Endpoint -> $Attr】
+	EndpointsByPod map[string][]*types.Endpoint                   `yaml:"-" json:"endpoints_by_pod,omitempty"` // *每个pod对应的endpoints，【etcd不保存】
+
+	dirty      bool                          // 是否需要更新endpoints
+	endpoints  []*types.Endpoint             // 所有的endpoints
+	attributes []map[string]*types.Attribute // 所有的属性，idx和endpoints对应，selectorName -> attr
+
+	//EndpointsAddNtf chan *Endpoint // *Endpoints更新通知
+	//EndpointsDelNtf chan *Endpoint // *Endpoints删除通知
+}
+
 func NewService(name string) *Service {
 	return &Service{
 		Name:           name,
-		AttrMap:        make(map[Endpoint]map[string]*Attribute),
-		EndpointsByPod: make(map[string][]*Endpoint),
+		AttrMap:        make(map[types.Endpoint]map[string]*types.Attribute),
+		EndpointsByPod: make(map[string][]*types.Endpoint),
 		//EndpointsAddNtf: make(chan *core.Endpoint, 100),
 		//EndpointsDelNtf: make(chan *core.Endpoint, 100),
 	}
@@ -15,8 +30,8 @@ func (s *Service) SetDirty() {
 }
 
 func (s *Service) update() {
-	endpoints := make([]*Endpoint, 0)
-	attributes := make([]map[string]*Attribute, 0)
+	endpoints := make([]*types.Endpoint, 0)
+	attributes := make([]map[string]*types.Attribute, 0)
 	for endpoint, attr := range s.AttrMap {
 		endpoints = append(endpoints, &endpoint)
 		attributes = append(attributes, attr)
@@ -26,25 +41,25 @@ func (s *Service) update() {
 	s.dirty = false
 }
 
-func (s *Service) Endpoints() []*Endpoint {
+func (s *Service) Endpoints() []*types.Endpoint {
 	if s.dirty {
 		s.update()
 	}
 	return s.endpoints
 }
 
-func NewDefaultAttr() *Attribute {
-	return &Attribute{
+func NewDefaultAttr() *types.Attribute {
+	return &types.Attribute{
 		Weight:   1,
 		Deadline: 0,
 	}
 }
 
-func (s *Service) Attributes(selector string) []*Attribute {
+func (s *Service) Attributes(selector string) []*types.Attribute {
 	if s.dirty {
 		s.update()
 	}
-	attrs := make([]*Attribute, 0)
+	attrs := make([]*types.Attribute, 0)
 	for _, attrMap := range s.attributes {
 		if attr, ok := attrMap[selector]; ok {
 			attrs = append(attrs, attr)
@@ -57,10 +72,10 @@ func (s *Service) Attributes(selector string) []*Attribute {
 	return attrs
 }
 
-func (s *Service) SetAttribute(endpoint *Endpoint, selector string, attr *Attribute) {
+func (s *Service) SetAttribute(endpoint *types.Endpoint, selector string, attr *types.Attribute) {
 	m, ok := s.AttrMap[*endpoint]
 	if !ok {
-		m = make(map[string]*Attribute)
+		m = make(map[string]*types.Attribute)
 		s.AttrMap[*endpoint] = m
 	}
 	m[selector] = attr

@@ -15,25 +15,32 @@ yapr:
   # 版本号增加时会更新数据库
   version: 1.0
   routers:
-    - name: "echo"
+    -
+      name: "echo"
       rules:
-        - priority: 0
+        -
+          priority: 0
           matchers:
             - uri: ".*/Echo"
               port: 9090
           selector: "echo-dir"
-        - priority: 1
+        -
+          priority: 1
           matchers:
             - uri: ".*/Echo"
               port: 9090
           selector: "echo-rr"
   selectors:
-    - name: "echo-dir"
+    -
+      name: "echo-dir"
       service: "echosvr"
       port: 9090
       key: "x-uid"
       strategy: "direct"
-    - name: "echo-rr"
+      buffer_size: 3
+      buffer_type: "lru"
+    -
+      name: "echo-rr"
       service: "echosvr"
       port: 9090
       key: "x-uid"

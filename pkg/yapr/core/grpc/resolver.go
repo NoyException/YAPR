@@ -8,6 +8,7 @@ import (
 	"google.golang.org/grpc/resolver"
 	"noy/router/pkg/yapr/core"
 	"noy/router/pkg/yapr/logger"
+	"noy/router/pkg/yapr/store"
 	"strconv"
 	"strings"
 	"time"
@@ -85,7 +86,7 @@ func (y *yaprResolver) watcher() {
 		case <-ticker.C:
 		}
 
-		router, err := core.GetRouter(y.routerName)
+		router, err := store.GetRouter(y.routerName)
 		if err == nil && router != nil {
 			serviceConfigJSON := fmt.Sprintf(`{"loadBalancingConfig":[{"%s":{}}]}`, "yapr")
 			config := y.cc.ParseServiceConfig(serviceConfigJSON)

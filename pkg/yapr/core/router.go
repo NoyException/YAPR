@@ -2,27 +2,33 @@ package core
 
 import (
 	"google.golang.org/grpc/metadata"
+	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
 	"regexp"
 )
 
-var routers = make(map[string]*Router)
-
-func GetRouter(name string) (*Router, error) {
-	if router, ok := routers[name]; ok {
-		return router, nil
-	}
-	s := MustStore()
-	router, err := s.GetRouter(name)
-	if err != nil {
-		logger.Errorf("router %s not found", name)
-		return nil, err
-	}
-	routers[name] = router
-	return router, nil
+type Matcher struct {
+	URI     string            `yaml:"uri" json:"uri,omitempty"`         // #方法名regex
+	Port    uint32            `yaml:"port" json:"port,omitempty"`       // #Router 端口
+	Headers map[string]string `yaml:"headers" json:"headers,omitempty"` // #对header的filters，对于所有header key都要满足指定regex
 }
 
-func (m *Matcher) Match(target *MatchTarget) bool {
+// Rule 代表了一条路由规则，包含了匹配规则和目的地服务网格
+type Rule struct {
+	Priority int32      `yaml:"priority" json:"priority,omitempty"` // #优先级，数字越小优先级越高，相同优先级按照注册顺序排序
+	Matchers []*Matcher `yaml:"matchers" json:"matchers,omitempty"` // #匹配规则，满足任意一个规则则匹配成功
+	Selector string     `yaml:"selector" json:"selector,omitempty"` // #路由目的地选择器
+}
+
+// Router 代表了一个服务网格的所有路由规则
+type Router struct {
+	Name           string               `yaml:"name" json:"name,omitempty"`   // #服务网格名
+	Rules          []*Rule              `yaml:"rules" json:"rules,omitempty"` // #路由规则，按优先级从高到低排序
+	SelectorByName map[string]*Selector `yaml:"-" json:"-"`                   // #所有路由选择器，用于快速查找
+	ServiceByName  map[string]*Service  `yaml:"-" json:"-"`                   // #所有服务，用于快速查找
+}
+
+func (m *Matcher) Match(target *types.MatchTarget) bool {
 	matched, err := regexp.Match(m.URI, []byte(target.URI))
 	if err != nil || !matched {
 		return false
@@ -45,7 +51,7 @@ func (m *Matcher) Match(target *MatchTarget) bool {
 	return true
 }
 
-func (r *Rule) Match(target *MatchTarget) bool {
+func (r *Rule) Match(target *types.MatchTarget) bool {
 	for _, matcher := range r.Matchers {
 		if matcher.Match(target) {
 			return true
@@ -54,7 +60,7 @@ func (r *Rule) Match(target *MatchTarget) bool {
 	return false
 }
 
-func (r *Router) Route(target *MatchTarget) (string, *Endpoint, uint32, metadata.MD, error) {
+func (r *Router) Route(target *types.MatchTarget) (string, *types.Endpoint, uint32, metadata.MD, error) {
 	for _, rule := range r.Rules {
 		if rule.Match(target) {
 			if selector, ok := r.SelectorByName[rule.Selector]; ok {

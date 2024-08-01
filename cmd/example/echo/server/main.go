@@ -9,8 +9,8 @@ import (
 	"log"
 	"net"
 	"noy/router/cmd/example/echo/echopb"
-	"noy/router/pkg/yapr/core"
 	"noy/router/pkg/yapr/core/sdk"
+	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
 	"strconv"
 	"strings"
@@ -29,7 +29,7 @@ var (
 type EchoServer struct {
 	echopb.UnimplementedEchoServiceServer
 
-	Endpoint *core.Endpoint
+	Endpoint *types.Endpoint
 }
 
 func (e *EchoServer) Echo(ctx context.Context, request *echopb.EchoRequest) (*echopb.EchoResponse, error) {
@@ -65,7 +65,7 @@ func main() {
 	}
 	s := grpc.NewServer()
 	defer s.Stop()
-	endpoint := &core.Endpoint{
+	endpoint := &types.Endpoint{
 		IP: strings.Split(*addr, ":")[0],
 	}
 	echopb.RegisterEchoServiceServer(s, &EchoServer{
@@ -80,13 +80,13 @@ func main() {
 			w = 1
 		}
 		yaprsdk.Init(*configPath)
-		err = yaprsdk.SetEndpointAttribute(endpoint, "s1", &core.Attribute{
+		err = yaprsdk.SetEndpointAttribute(endpoint, "s1", &types.Attribute{
 			Weight: uint32(w),
 		})
 		if err != nil {
 			panic(err)
 		}
-		err = yaprsdk.RegisterService("echosvr", []*core.Endpoint{endpoint})
+		err = yaprsdk.RegisterService("echosvr", []*types.Endpoint{endpoint})
 		if err != nil {
 			panic(err)
 		}

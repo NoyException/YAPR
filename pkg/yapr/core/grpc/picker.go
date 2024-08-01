@@ -3,6 +3,7 @@ package yaprgrpc
 import (
 	"google.golang.org/grpc/balancer"
 	"noy/router/pkg/yapr/core"
+	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
 	"strconv"
 )
@@ -22,7 +23,7 @@ func NewPicker(subConns map[string]balancer.SubConn, router *core.Router, port u
 }
 
 func (y *yaprPicker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
-	mt := &core.MatchTarget{
+	mt := &types.MatchTarget{
 		Port: y.port,
 		URI:  info.FullMethodName,
 		Ctx:  info.Ctx,

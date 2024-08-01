@@ -12,4 +12,5 @@ var (
 	ErrNoCustomRoute       = fmt.Errorf("no custom route")
 	ErrNoKeyAvailable      = fmt.Errorf("no key available (for stateful routing)")
 	ErrNoValueAvailable    = fmt.Errorf("no value available (for stateful routing)")
+	ErrBufferNotFound      = fmt.Errorf("buffer not found")
 )

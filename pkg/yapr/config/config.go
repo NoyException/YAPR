@@ -10,7 +10,7 @@ import (
 type Config struct {
 	Etcd  *ETCDConfig  `yaml:"etcd"`
 	Redis *RedisConfig `yaml:"redis"`
-	Yapr  *core.Config `yaml:"yapr"`
+	Yapr  *YaprConfig  `yaml:"yapr"`
 }
 
 // ETCDConfig etcd 集群配置
@@ -24,6 +24,13 @@ type ETCDConfig struct {
 // RedisConfig redis 配置
 type RedisConfig struct {
 	Url string `yaml:"url"` // redis 的地址
+}
+
+// YaprConfig 代表了所有路由的配置
+type YaprConfig struct {
+	Version   string           `yaml:"version" json:"version,omitempty"`     // #版本号
+	Routers   []*core.Router   `yaml:"routers" json:"routers,omitempty"`     // #所有服务网格
+	Selectors []*core.Selector `yaml:"selectors" json:"selectors,omitempty"` // #所有路由选择器
 }
 
 // LoadConfig 加载配置

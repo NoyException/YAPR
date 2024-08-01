@@ -1,4 +1,4 @@
-package store
+package impl
 
 import (
 	"context"
@@ -9,7 +9,10 @@ import (
 	"go.etcd.io/etcd/client/v3/concurrency"
 	"noy/router/pkg/yapr/config"
 	"noy/router/pkg/yapr/core"
+	"noy/router/pkg/yapr/core/buffer"
+	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
+	"noy/router/pkg/yapr/store"
 	"noy/router/pkg/yapr/store/etcd"
 	"strings"
 	"time"
@@ -24,7 +27,7 @@ type Impl struct {
 	setCustomRouteSha1 string
 }
 
-var _ core.Store = (*Impl)(nil)
+var _ store.Store = (*Impl)(nil)
 
 func NewImpl(cfg *config.Config) (*Impl, error) { // 初始化 etcd 客户端
 	etcdClient, err := etcd.NewClient(cfg.Etcd)
@@ -53,7 +56,7 @@ func NewImpl(cfg *config.Config) (*Impl, error) { // 初始化 etcd 客户端
 	return newImpl, nil
 }
 
-func (s *Impl) LoadConfig(config *core.Config) error {
+func (s *Impl) LoadConfig(config *config.YaprConfig) error {
 	session, err := concurrency.NewSession(s.etcdClient, concurrency.WithTTL(5))
 	if err != nil {
 		logger.Fatalf("could not create session: %v", err)
@@ -168,6 +171,19 @@ func (s *Impl) GetSelectors() (map[string]*core.Selector, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		size := selector.BufferSize
+		if size == 0 {
+			size = 4096
+		}
+		switch selector.BufferType {
+		case types.BufferTypeLRU:
+			selector.Buffer = buffer.NewLRUBuffer(name, size)
+		case types.BufferTypeNone:
+			fallthrough
+		default:
+			selector.Buffer = buffer.NewDefaultBuffer(name)
+		}
 		selectors[name] = &selector
 	}
 	return selectors, nil
@@ -179,12 +195,12 @@ func (s *Impl) GetServices() (map[string]*core.Service, error) {
 
 	services := make(map[string]*core.Service)
 	// 监听服务的节点变化
-	s.RegisterServiceChangeListener(func(service string, isPut bool, pod string, endpoints []*core.Endpoint) {
+	s.RegisterServiceChangeListener(func(service string, isPut bool, pod string, endpoints []*types.Endpoint) {
 		svc := services[service]
 		svc.SetDirty()
 		if isPut {
 			for _, endpoint := range endpoints {
-				svc.AttrMap[*endpoint] = make(map[string]*core.Attribute)
+				svc.AttrMap[*endpoint] = make(map[string]*types.Attribute)
 			}
 			svc.EndpointsByPod[pod] = endpoints
 		} else {
@@ -222,7 +238,7 @@ func (s *Impl) GetServices() (map[string]*core.Service, error) {
 			service = core.NewService(name)
 			services[name] = service
 			// 监听服务的属性变化
-			s.RegisterAttributeChangeListener(func(endpoint *core.Endpoint, selector string, attribute *core.Attribute) {
+			s.RegisterAttributeChangeListener(func(endpoint *types.Endpoint, selector string, attribute *types.Attribute) {
 				service.SetAttribute(endpoint, selector, attribute)
 			})
 			// 获取服务的所有属性
@@ -231,7 +247,7 @@ func (s *Impl) GetServices() (map[string]*core.Service, error) {
 				return nil, err
 			}
 			for _, kv := range response.Kvs {
-				var attr core.Attribute
+				var attr types.Attribute
 				err = json.Unmarshal(kv.Value, &attr)
 				if err != nil {
 					logger.Warnf("unmarshal attribute error: %v", err)
@@ -244,14 +260,14 @@ func (s *Impl) GetServices() (map[string]*core.Service, error) {
 				}
 				selector := splits[1]
 				ip := splits[2]
-				endpoint := &core.Endpoint{
+				endpoint := &types.Endpoint{
 					IP: ip,
 				}
 				service.SetAttribute(endpoint, selector, &attr)
 			}
 		}
 		// 获取服务在某个pod下的所有节点
-		var endpoints []*core.Endpoint
+		var endpoints []*types.Endpoint
 		err = json.Unmarshal(kv.Value, &endpoints)
 		if err != nil {
 			return nil, err
@@ -262,7 +278,7 @@ func (s *Impl) GetServices() (map[string]*core.Service, error) {
 	return services, nil
 }
 
-func (s *Impl) RegisterService(service string, endpoints []*core.Endpoint) error {
+func (s *Impl) RegisterService(service string, endpoints []*types.Endpoint) error {
 	bytes, err := json.Marshal(endpoints)
 	if err != nil {
 		return err
@@ -295,7 +311,7 @@ func (s *Impl) RegisterService(service string, endpoints []*core.Endpoint) error
 	return err
 }
 
-func (s *Impl) RegisterServiceChangeListener(listener func(service string, isPut bool, pod string, endpoints []*core.Endpoint)) {
+func (s *Impl) RegisterServiceChangeListener(listener func(service string, isPut bool, pod string, endpoints []*types.Endpoint)) {
 	go func() {
 		watchChan := s.etcdClient.Watch(context.Background(), "svc/", clientv3.WithPrefix())
 		for watchResp := range watchChan {
@@ -315,7 +331,7 @@ func (s *Impl) RegisterServiceChangeListener(listener func(service string, isPut
 					continue
 				}
 
-				endpoints := make([]*core.Endpoint, 0)
+				endpoints := make([]*types.Endpoint, 0)
 				err := json.Unmarshal(value, &endpoints)
 				if err != nil {
 					logger.Warnf("unmarshal endpoints error: %v", err)
@@ -327,7 +343,7 @@ func (s *Impl) RegisterServiceChangeListener(listener func(service string, isPut
 	}()
 }
 
-func (s *Impl) SetEndpointAttribute(endpoint *core.Endpoint, selector string, attribute *core.Attribute) error {
+func (s *Impl) SetEndpointAttribute(endpoint *types.Endpoint, selector string, attribute *types.Attribute) error {
 	key := "attr/" + selector + "/" + endpoint.IP
 	bytes, err := json.Marshal(attribute)
 	if err != nil {
@@ -339,12 +355,12 @@ func (s *Impl) SetEndpointAttribute(endpoint *core.Endpoint, selector string, at
 	return err
 }
 
-func (s *Impl) RegisterAttributeChangeListener(listener func(endpoint *core.Endpoint, selector string, attribute *core.Attribute)) {
+func (s *Impl) RegisterAttributeChangeListener(listener func(endpoint *types.Endpoint, selector string, attribute *types.Attribute)) {
 	go func() {
 		watchChan := s.etcdClient.Watch(context.Background(), "attr/", clientv3.WithPrefix())
 		for watchResp := range watchChan {
 			for _, event := range watchResp.Events {
-				attribute := &core.Attribute{}
+				attribute := &types.Attribute{}
 				err := json.Unmarshal(event.Kv.Value, attribute)
 				if err != nil {
 					logger.Warnf("unmarshal attribute error: %v", err)
@@ -356,7 +372,7 @@ func (s *Impl) RegisterAttributeChangeListener(listener func(endpoint *core.Endp
 					continue
 				}
 				selector := splits[1]
-				endpoint := &core.Endpoint{
+				endpoint := &types.Endpoint{
 					IP: splits[2],
 				}
 				listener(endpoint, selector, attribute)
@@ -365,7 +381,7 @@ func (s *Impl) RegisterAttributeChangeListener(listener func(endpoint *core.Endp
 	}()
 }
 
-func (s *Impl) SetCustomRoute(selectorName, headerValue string, endpoint *core.Endpoint, timeout int64) error {
+func (s *Impl) SetCustomRoute(selectorName, headerValue string, endpoint *types.Endpoint, timeout int64) error {
 	if s.setCustomRouteSha1 == "" {
 		luaScript := `
 local selectorName = KEYS[1]
@@ -419,7 +435,7 @@ return 0 -- 键值对不存在或已过期，插入成功
 	return nil
 }
 
-func (s *Impl) GetCustomRoute(selectorName, headerValue string) (*core.Endpoint, error) {
+func (s *Impl) GetCustomRoute(selectorName, headerValue string) (*types.Endpoint, error) {
 	endpoint, err := s.redisClient.HGet(context.Background(), "_end_point_"+selectorName, headerValue).Result()
 	if err != nil {
 		return nil, err
@@ -427,7 +443,7 @@ func (s *Impl) GetCustomRoute(selectorName, headerValue string) (*core.Endpoint,
 	if endpoint == "" {
 		return nil, core.ErrNoCustomRoute
 	}
-	return &core.Endpoint{
+	return &types.Endpoint{
 		IP: endpoint,
 	}, nil
 }

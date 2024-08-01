@@ -5,31 +5,49 @@ import (
 	"google.golang.org/grpc/metadata"
 	"hash/fnv"
 	"math/rand/v2"
+	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
 )
 
-func (s *Selector) Select(service *Service, target *MatchTarget) (*Endpoint, error) {
+// Selector 全名是Endpoint Selector，指定了目标service和选择策略【以json格式存etcd】
+type Selector struct {
+	Name       string            `yaml:"name" json:"name,omitempty"`               // #唯一名称
+	Service    string            `yaml:"service" json:"service,omitempty"`         // #目标服务
+	Port       uint32            `yaml:"port" json:"port,omitempty"`               // #目标端口
+	Headers    map[string]string `yaml:"headers" json:"headers,omitempty"`         // #路由成功后为请求添加的headers
+	Strategy   types.Strategy    `yaml:"strategy" json:"strategy,omitempty"`       // #路由策略，默认为random
+	Key        string            `yaml:"key" json:"key,omitempty"`                 // #用于从header中获取路由用的value，仅在一致性哈希和指定目标策略下有效
+	BufferType types.BufferType  `yaml:"buffer_type" json:"buffer_type,omitempty"` // #动态键值路由缓存类型，仅在指定目标策略下有效，默认为none
+	BufferSize uint32            `yaml:"buffer_size" json:"buffer_size,omitempty"` // #动态键值路由缓存大小，仅在指定目标策略下有效，默认为4096
+	//DirectMap    map[string]Endpoint `yaml:"-" json:"direct_map,omitempty"`      // 指定目标路由，从redis现存现取，表名$SelectorName，键值对为header value -> Endpoint
+
+	Buffer types.DynamicRouteBuffer `yaml:"-" json:"-"` // 动态路由缓存
+
+	lastIdx uint32 // 上次选择的endpoint索引
+}
+
+func (s *Selector) Select(service *Service, target *types.MatchTarget) (*types.Endpoint, error) {
 	switch s.Strategy {
-	case StrategyRandom:
+	case types.StrategyRandom:
 		return s.randomSelect(service)
-	case StrategyRoundRobin:
+	case types.StrategyRoundRobin:
 		return s.roundRobinSelect(service)
-	case StrategyWeightedRandom:
+	case types.StrategyWeightedRandom:
 		return s.weightedRandomSelect(service)
-	case StrategyWeightedRoundRobin:
+	case types.StrategyWeightedRoundRobin:
 		return s.weightedRoundRobinSelect(service)
-	case StrategyLeastCost:
+	case types.StrategyLeastCost:
 		return s.leastCostSelect(service)
-	case StrategyConsistentHash:
+	case types.StrategyConsistentHash:
 		return s.consistentHashSelect(service, target)
-	case StrategyDirect:
+	case types.StrategyDirect:
 		return s.directSelect(service, target)
 	default:
 		return nil, fmt.Errorf("unknown strategy: %s", s.Strategy)
 	}
 }
 
-func (s *Selector) randomSelect(service *Service) (*Endpoint, error) {
+func (s *Selector) randomSelect(service *Service) (*types.Endpoint, error) {
 	endpoints := service.Endpoints()
 	if len(endpoints) == 0 {
 		return nil, ErrNoEndpointAvailable
@@ -37,7 +55,7 @@ func (s *Selector) randomSelect(service *Service) (*Endpoint, error) {
 	return endpoints[rand.IntN(len(endpoints))], nil
 }
 
-func (s *Selector) roundRobinSelect(service *Service) (*Endpoint, error) {
+func (s *Selector) roundRobinSelect(service *Service) (*types.Endpoint, error) {
 	endpoints := service.Endpoints()
 	if len(endpoints) == 0 {
 		return nil, ErrNoEndpointAvailable
@@ -46,7 +64,7 @@ func (s *Selector) roundRobinSelect(service *Service) (*Endpoint, error) {
 	return endpoints[s.lastIdx], nil
 }
 
-func (s *Selector) weightedRandomSelect(service *Service) (*Endpoint, error) {
+func (s *Selector) weightedRandomSelect(service *Service) (*types.Endpoint, error) {
 	endpoints := service.Endpoints()
 	if len(endpoints) == 0 {
 		return nil, ErrNoEndpointAvailable
@@ -68,7 +86,7 @@ func (s *Selector) weightedRandomSelect(service *Service) (*Endpoint, error) {
 	return nil, ErrNoEndpointAvailable
 }
 
-func (s *Selector) weightedRoundRobinSelect(service *Service) (*Endpoint, error) {
+func (s *Selector) weightedRoundRobinSelect(service *Service) (*types.Endpoint, error) {
 	endpoints := service.Endpoints()
 	if len(endpoints) == 0 {
 		return nil, ErrNoEndpointAvailable
@@ -91,7 +109,7 @@ func (s *Selector) weightedRoundRobinSelect(service *Service) (*Endpoint, error)
 }
 
 // 实现上是选取最大权重（weight = C - cost）
-func (s *Selector) leastCostSelect(service *Service) (*Endpoint, error) {
+func (s *Selector) leastCostSelect(service *Service) (*types.Endpoint, error) {
 	endpoints := service.Endpoints()
 	if len(endpoints) == 0 {
 		return nil, ErrNoEndpointAvailable
@@ -135,7 +153,7 @@ func hashString(s string) uint64 {
 	return h.Sum64()
 }
 
-func (s *Selector) headerValue(target *MatchTarget) (string, error) {
+func (s *Selector) headerValue(target *types.MatchTarget) (string, error) {
 	if s.Key == "" {
 		return "", ErrNoKeyAvailable
 	}
@@ -151,7 +169,7 @@ func (s *Selector) headerValue(target *MatchTarget) (string, error) {
 	return values[0], nil
 }
 
-func (s *Selector) consistentHashSelect(service *Service, target *MatchTarget) (*Endpoint, error) {
+func (s *Selector) consistentHashSelect(service *Service, target *types.MatchTarget) (*types.Endpoint, error) {
 	if s.Key == "" {
 		return nil, ErrNoKeyAvailable
 	}
@@ -167,11 +185,10 @@ func (s *Selector) consistentHashSelect(service *Service, target *MatchTarget) (
 	}
 	hashed := hashString(value)
 	idx := JumpConsistentHash(hashed, int32(len(endpoints)))
-	//logger.Debugf("select idx %d by value %v with hashed %v", idx, value, hashed)
 	return endpoints[idx], nil
 }
 
-func (s *Selector) directSelect(service *Service, target *MatchTarget) (*Endpoint, error) {
+func (s *Selector) directSelect(service *Service, target *types.MatchTarget) (*types.Endpoint, error) {
 	if s.Key == "" {
 		return nil, ErrNoKeyAvailable
 	}
@@ -186,9 +203,13 @@ func (s *Selector) directSelect(service *Service, target *MatchTarget) (*Endpoin
 		return nil, err
 	}
 
-	endpoint, err := MustStore().GetCustomRoute(s.Name, value)
-	if err != nil || endpoint == nil {
-		return nil, err
+	if s.Buffer == nil {
+		return nil, ErrBufferNotFound
+	}
+
+	endpoint := s.Buffer.Get(value)
+	if endpoint == nil {
+		return nil, ErrNoCustomRoute
 	}
 	logger.Debugf("direct select endpoint %v by value %v", endpoint, value)
 	return endpoint, nil

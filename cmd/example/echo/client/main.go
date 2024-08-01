@@ -45,7 +45,7 @@ func main() {
 	ticker := time.NewTicker(2 * time.Second)
 	uids := []string{"10001", "10002", "10003", "10004", "10005"}
 	for range ticker.C {
-		uid := uids[rand.IntN(len(uids))]
+		uid := *name + "_" + uids[rand.IntN(len(uids))]
 		ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("x-uid", uid))
 		response, err := client.Echo(ctx, &echopb.EchoRequest{Message: "Hello world from user " + uid})
 		if err != nil {
