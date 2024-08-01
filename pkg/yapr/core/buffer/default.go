@@ -15,10 +15,20 @@ func NewDefaultBuffer(selectorName string) *DefaultBuffer {
 	return &DefaultBuffer{selectorName: selectorName}
 }
 
-func (d *DefaultBuffer) Get(headerValue string) *types.Endpoint {
-	route, err := store.MustStore().GetCustomRoute(d.selectorName, headerValue)
-	if err != nil {
-		return nil
-	}
-	return route
+func (d *DefaultBuffer) Get(headerValue string) (*types.Endpoint, error) {
+	return store.MustStore().GetCustomRoute(d.selectorName, headerValue)
+}
+
+func (d *DefaultBuffer) Set(headerValue string, endpoint *types.Endpoint, timeout int64) error {
+	return store.MustStore().SetCustomRoute(d.selectorName, headerValue, endpoint, timeout)
+}
+
+func (d *DefaultBuffer) Remove(headerValue string) error {
+	return store.MustStore().RemoveCustomRoute(d.selectorName, headerValue)
+}
+
+func (d *DefaultBuffer) Refresh(headerValue string) {
+}
+
+func (d *DefaultBuffer) Clear() {
 }

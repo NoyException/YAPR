@@ -32,7 +32,11 @@ type Attribute struct {
 
 // DynamicRouteBuffer 动态键值路由缓存
 type DynamicRouteBuffer interface {
-	Get(headerValue string) *Endpoint
+	Get(headerValue string) (*Endpoint, error)
+	Set(headerValue string, endpoint *Endpoint, timeout int64) error
+	Remove(headerValue string) error
+	Refresh(headerValue string)
+	Clear()
 }
 
 type BufferType string

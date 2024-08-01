@@ -20,6 +20,7 @@ type Store interface {
 
 	SetCustomRoute(selectorName, headerValue string, endpoint *types.Endpoint, timeout int64) error
 	GetCustomRoute(selectorName, headerValue string) (*types.Endpoint, error)
+	RemoveCustomRoute(selectorName, headerValue string) error
 
 	Close()
 }

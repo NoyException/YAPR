@@ -169,6 +169,7 @@ func (s *Selector) headerValue(target *types.MatchTarget) (string, error) {
 	return values[0], nil
 }
 
+// TODO：新增或删除endpoint时，该如何处理？
 func (s *Selector) consistentHashSelect(service *Service, target *types.MatchTarget) (*types.Endpoint, error) {
 	if s.Key == "" {
 		return nil, ErrNoKeyAvailable
@@ -188,12 +189,13 @@ func (s *Selector) consistentHashSelect(service *Service, target *types.MatchTar
 	return endpoints[idx], nil
 }
 
+// TODO：新增或删除endpoint时，该如何处理？
 func (s *Selector) directSelect(service *Service, target *types.MatchTarget) (*types.Endpoint, error) {
 	if s.Key == "" {
 		return nil, ErrNoKeyAvailable
 	}
 
-	endpoints := service.Endpoints()
+	endpoints := service.EndpointsSet()
 	if len(endpoints) == 0 {
 		return nil, ErrNoEndpointAvailable
 	}
@@ -207,10 +209,21 @@ func (s *Selector) directSelect(service *Service, target *types.MatchTarget) (*t
 		return nil, ErrBufferNotFound
 	}
 
-	endpoint := s.Buffer.Get(value)
-	if endpoint == nil {
-		return nil, ErrNoCustomRoute
+	for i := 0; i < 3; i++ {
+		endpoint, err := s.Buffer.Get(value)
+		if endpoint == nil || err != nil {
+			s.Buffer.Refresh(value)
+			continue
+		}
+		if _, ok := endpoints[*endpoint]; !ok {
+			err := s.Buffer.Remove(value)
+			if err != nil {
+				logger.Errorf("remove endpoint %v failed: %v", endpoint, err)
+			}
+			continue
+		}
+		logger.Debugf("direct select endpoint %v by value %v", endpoint, value)
+		return endpoint, nil
 	}
-	logger.Debugf("direct select endpoint %v by value %v", endpoint, value)
-	return endpoint, nil
+	return nil, ErrNoEndpointAvailable
 }

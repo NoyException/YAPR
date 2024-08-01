@@ -448,6 +448,11 @@ func (s *Impl) GetCustomRoute(selectorName, headerValue string) (*types.Endpoint
 	}, nil
 }
 
+func (s *Impl) RemoveCustomRoute(selectorName, headerValue string) error {
+	_, err := s.redisClient.HDel(context.Background(), "_end_point_"+selectorName, headerValue).Result()
+	return err
+}
+
 func (s *Impl) Close() {
 	err := s.etcdClient.Close()
 	if err != nil {

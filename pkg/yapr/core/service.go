@@ -7,9 +7,10 @@ type Service struct {
 	AttrMap        map[types.Endpoint]map[string]*types.Attribute `yaml:"-" json:"attr_map,omitempty"`         // *每个endpoint和他在某个 Selector 中的属性【etcd中保存为slt/$Name/AttrMap_$Endpoint -> $Attr】
 	EndpointsByPod map[string][]*types.Endpoint                   `yaml:"-" json:"endpoints_by_pod,omitempty"` // *每个pod对应的endpoints，【etcd不保存】
 
-	dirty      bool                          // 是否需要更新endpoints
-	endpoints  []*types.Endpoint             // 所有的endpoints
-	attributes []map[string]*types.Attribute // 所有的属性，idx和endpoints对应，selectorName -> attr
+	dirty        bool                          // 是否需要更新endpoints
+	endpoints    []*types.Endpoint             // 所有的endpoints
+	endpointsSet map[types.Endpoint]struct{}   // 所有的endpoints
+	attributes   []map[string]*types.Attribute // 所有的属性，idx和endpoints对应，selectorName -> attr
 
 	//EndpointsAddNtf chan *Endpoint // *Endpoints更新通知
 	//EndpointsDelNtf chan *Endpoint // *Endpoints删除通知
@@ -31,12 +32,15 @@ func (s *Service) SetDirty() {
 
 func (s *Service) update() {
 	endpoints := make([]*types.Endpoint, 0)
+	endpointsSet := make(map[types.Endpoint]struct{})
 	attributes := make([]map[string]*types.Attribute, 0)
 	for endpoint, attr := range s.AttrMap {
 		endpoints = append(endpoints, &endpoint)
+		endpointsSet[endpoint] = struct{}{}
 		attributes = append(attributes, attr)
 	}
 	s.endpoints = endpoints
+	s.endpointsSet = endpointsSet
 	s.attributes = attributes
 	s.dirty = false
 }
@@ -46,6 +50,13 @@ func (s *Service) Endpoints() []*types.Endpoint {
 		s.update()
 	}
 	return s.endpoints
+}
+
+func (s *Service) EndpointsSet() map[types.Endpoint]struct{} {
+	if s.dirty {
+		s.update()
+	}
+	return s.endpointsSet
 }
 
 func NewDefaultAttr() *types.Attribute {
