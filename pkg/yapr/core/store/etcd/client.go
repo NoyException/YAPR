@@ -2,7 +2,7 @@ package etcd
 
 import (
 	"context"
-	"noy/router/pkg/yapr/config"
+	"noy/router/pkg/yapr/core/config"
 	"sync"
 
 	clientv3 "go.etcd.io/etcd/client/v3"

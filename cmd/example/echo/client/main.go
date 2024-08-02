@@ -12,6 +12,7 @@ import (
 	"noy/router/cmd/example/echo/echopb"
 	"noy/router/pkg/yapr/core/sdk"
 	"noy/router/pkg/yapr/logger"
+	"noy/router/pkg/yapr/metrics"
 	"time"
 )
 
@@ -34,6 +35,7 @@ func main() {
 		}
 	}()
 
+	go metrics.Init()
 	yaprsdk.Init(*configPath)
 	time.Sleep(10 * time.Millisecond)
 
@@ -48,7 +50,12 @@ func main() {
 		uid := *name + "_" + uids[rand.IntN(len(uids))]
 		ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("x-uid", uid))
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+
+		// 记录用时
+		start := time.Now()
 		response, err := client.Echo(ctx, &echopb.EchoRequest{Message: "Hello world from user " + uid})
+		metrics.ObserveGRPCDuration("echo", time.Since(start).Seconds())
+
 		cancel()
 		if err != nil {
 			logger.Errorf(err.Error())

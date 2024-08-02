@@ -12,6 +12,7 @@ import (
 	"noy/router/pkg/yapr/core/sdk"
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
+	"noy/router/pkg/yapr/metrics"
 	"strconv"
 	"strings"
 	"time"
@@ -60,6 +61,7 @@ func main() {
 		}
 	}()
 
+	go metrics.Init()
 	l, err := net.Listen("tcp", *addr)
 	if err != nil {
 		panic(err)

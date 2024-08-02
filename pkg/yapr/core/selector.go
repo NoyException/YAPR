@@ -7,6 +7,8 @@ import (
 	"math/rand/v2"
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
+	"noy/router/pkg/yapr/metrics"
+	"time"
 )
 
 // Selector 全名是Endpoint Selector，指定了目标service和选择策略【以json格式存etcd】
@@ -27,6 +29,11 @@ type Selector struct {
 }
 
 func (s *Selector) Select(service *Service, target *types.MatchTarget) (*types.Endpoint, error) {
+	start := time.Now()
+	defer func() {
+		metrics.ObserveSelectorDuration(string(s.Strategy), time.Since(start).Seconds())
+	}()
+
 	switch s.Strategy {
 	case types.StrategyRandom:
 		return s.randomSelect(service)

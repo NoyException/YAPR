@@ -1,8 +1,8 @@
 package store
 
 import (
-	"noy/router/pkg/yapr/config"
 	"noy/router/pkg/yapr/core"
+	"noy/router/pkg/yapr/core/config"
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
 )

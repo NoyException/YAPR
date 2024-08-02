@@ -7,8 +7,9 @@ import (
 	"google.golang.org/grpc/attributes"
 	"google.golang.org/grpc/resolver"
 	"noy/router/pkg/yapr/core"
+	"noy/router/pkg/yapr/core/store"
 	"noy/router/pkg/yapr/logger"
-	"noy/router/pkg/yapr/store"
+	"noy/router/pkg/yapr/metrics"
 	"strconv"
 	"strings"
 	"time"
@@ -103,6 +104,11 @@ func (y *yaprResolver) watcher() {
 }
 
 func (y *yaprResolver) Endpoints(router *core.Router) []resolver.Endpoint {
+	start := time.Now()
+	defer func() {
+		metrics.ObserveResolverDuration(time.Since(start).Seconds())
+	}()
+
 	visited := make(map[string]struct{})
 	var endpoints []resolver.Endpoint
 	for _, selector := range router.Selectors() {

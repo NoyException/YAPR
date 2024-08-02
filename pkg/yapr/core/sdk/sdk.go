@@ -3,12 +3,12 @@ package yaprsdk
 import (
 	"math"
 	"net"
-	"noy/router/pkg/yapr/config"
 	"noy/router/pkg/yapr/core"
+	"noy/router/pkg/yapr/core/config"
 	_ "noy/router/pkg/yapr/core/grpc"
+	"noy/router/pkg/yapr/core/store"
+	"noy/router/pkg/yapr/core/store/impl"
 	"noy/router/pkg/yapr/core/types"
-	"noy/router/pkg/yapr/store"
-	"noy/router/pkg/yapr/store/impl"
 	"sync"
 )
 

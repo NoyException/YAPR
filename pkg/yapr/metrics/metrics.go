@@ -3,6 +3,10 @@ package metrics
 import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"log"
+	"net/http"
+	"noy/router/pkg/yapr/logger"
 )
 
 const (
@@ -10,26 +14,55 @@ const (
 )
 
 var (
-	globalLabels   = []string{"node_type", "node_addr"}
-	durationLabels = []string{"duration_key"}
+	//// 某个计数器指标
+	//whateverTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	//	Name: "whatever_total",
+	//	Help: "The total number of whatever",
+	//}, globalLabels)
 
-	// 某个计数器指标
-	whateverTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "whatever_total",
-		Help: "The total number of whatever",
-	}, globalLabels)
-
-	whateverDuration = promauto.NewSummaryVec(prometheus.SummaryOpts{
-		Name:       "whatever_duration",
-		Help:       "The duration of whatever",
+	gRPCDuration = promauto.NewSummaryVec(prometheus.SummaryOpts{
+		Name:       "grpc_duration",
+		Help:       "The duration of gRPC",
 		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-	}, globalLabels)
+	}, []string{"target"})
+
+	resolverDuration = promauto.NewSummaryVec(prometheus.SummaryOpts{
+		Name:       "resolver_duration",
+		Help:       "The duration of resolver",
+		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+	}, []string{})
+
+	//balancerDuration = promauto.NewSummaryVec(prometheus.SummaryOpts{
+	//	Name:       "balancer_duration",
+	//	Help:       "The duration of balancer",
+	//	Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+	//}, []string{})
+
+	selectorDuration = promauto.NewSummaryVec(prometheus.SummaryOpts{
+		Name:       "selector_duration",
+		Help:       "The duration of selector",
+		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+	}, []string{"strategy"})
 )
 
-func IncWhateverTotal(nodeAddr string) {
-	whateverTotal.WithLabelValues(NodeTypeWhateverServer, nodeAddr).Inc()
+func Init() {
+	http.Handle("/metrics", promhttp.Handler())
+	logger.Info("metrics server started at :8080")
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func ObserveWhateverDuration(durationKey string, duration float64) {
-	whateverDuration.WithLabelValues(durationKey).Observe(duration)
+func ObserveGRPCDuration(target string, duration float64) {
+	gRPCDuration.WithLabelValues(target).Observe(duration)
+}
+
+func ObserveResolverDuration(duration float64) {
+	resolverDuration.WithLabelValues().Observe(duration)
+}
+
+//func ObserveBalancerDuration(duration float64) {
+//	balancerDuration.WithLabelValues().Observe(duration)
+//}
+
+func ObserveSelectorDuration(strategy string, duration float64) {
+	selectorDuration.WithLabelValues(strategy).Observe(duration)
 }
