@@ -15,6 +15,7 @@ import (
 	"noy/router/pkg/yapr/store"
 	"noy/router/pkg/yapr/store/etcd"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,7 +25,8 @@ type Impl struct {
 
 	uuid string
 
-	setCustomRouteSha1 string
+	mu                sync.Mutex
+	setCustomRouteSha string
 }
 
 var _ store.Store = (*Impl)(nil)
@@ -381,13 +383,16 @@ func (s *Impl) RegisterAttributeChangeListener(listener func(endpoint *types.End
 	}()
 }
 
-func (s *Impl) SetCustomRoute(selectorName, headerValue string, endpoint *types.Endpoint, timeout int64) error {
-	if s.setCustomRouteSha1 == "" {
-		luaScript := `
+func (s *Impl) SetCustomRoute(selectorName, headerValue string, endpoint *types.Endpoint, timeout int64, ignoreExisting bool) (bool, *types.Endpoint, error) {
+	if s.setCustomRouteSha == "" {
+		s.mu.Lock()
+		if s.setCustomRouteSha == "" {
+			luaScript := `
 local selectorName = KEYS[1]
 local headerValue = KEYS[2]
 local endpoint = ARGV[1]
 local timeout = tonumber(ARGV[2])
+local ignoreExisting = ARGV[3]
 local currentTime = redis.call("TIME")
 local currentTimeMillis = tonumber(currentTime[1]) * 1000 + tonumber(currentTime[2]) / 1000
 local deadline
@@ -404,35 +409,44 @@ local ddlTable = "_ddl_" .. selectorName
 local existing = redis.call("HGET", endpointTable, headerValue)
 local existingDDL = redis.call("HGET", ddlTable, headerValue)
 
-if existing and existingDDL then
-	local ddl = tonumber(existingDDL)
-	if currentTimeMillis < ddl or ddl == -1 then
-    	return 1 -- 键值对已存在且未过期，插入失败
-	end
+if existing ~= nil and existingDDL ~= nil then
+    local ddl = tonumber(existingDDL)
+    if currentTimeMillis >= ddl and ddl > 0 then
+		existing = nil
+    end
+end
+
+if existing ~= nil and ignoreExisting == "0" then
+	return {0, existing} -- 键值对已存在且不忽略
 end
 
 -- 插入新的键值对和超时时间
 redis.call("HSET", endpointTable, headerValue, endpoint)
 redis.call("HSET", ddlTable, headerValue, deadline)
-return 0 -- 键值对不存在或已过期，插入成功
+return {1, existing} -- 键值对不存在/已过期/忽略已存在，插入成功
 `
-		// 计算 Lua 脚本的 SHA1 哈希值
-		sha1, err := s.redisClient.ScriptLoad(context.Background(), luaScript).Result()
-		if err != nil {
-			panic(err)
+			// 计算 Lua 脚本的 SHA1 哈希值
+			sha, err := s.redisClient.ScriptLoad(context.Background(), luaScript).Result()
+			if err != nil {
+				panic(err)
+			}
+			s.setCustomRouteSha = sha
 		}
-		s.setCustomRouteSha1 = sha1
+		s.mu.Unlock()
 	}
 
 	// 执行 Lua 脚本
-	res, err := s.redisClient.EvalSha(context.Background(), s.setCustomRouteSha1, []string{selectorName, headerValue}, endpoint.IP, timeout).Result()
+	res, err := s.redisClient.EvalSha(context.Background(), s.setCustomRouteSha, []string{selectorName, headerValue}, endpoint.IP, timeout, ignoreExisting).Result()
 	if err != nil {
-		return err
+		return false, nil, err
 	}
-	if res.(int64) == 1 {
-		return core.ErrRouteAlreadyExists
+	resArr := res.([]interface{})
+	inserted := resArr[0].(int64) == 1
+	var existing *types.Endpoint
+	if ip, ok := resArr[1].(string); ok {
+		existing = &types.Endpoint{IP: ip}
 	}
-	return nil
+	return inserted, existing, nil
 }
 
 func (s *Impl) GetCustomRoute(selectorName, headerValue string) (*types.Endpoint, error) {
@@ -451,6 +465,11 @@ func (s *Impl) GetCustomRoute(selectorName, headerValue string) (*types.Endpoint
 func (s *Impl) RemoveCustomRoute(selectorName, headerValue string) error {
 	_, err := s.redisClient.HDel(context.Background(), "_end_point_"+selectorName, headerValue).Result()
 	return err
+}
+
+func (s *Impl) RegisterTransferListener(listener func(selectorName string, headerValue string, from *types.Endpoint, to *types.Endpoint)) {
+	// 使用etcd来实现监听
+
 }
 
 func (s *Impl) Close() {

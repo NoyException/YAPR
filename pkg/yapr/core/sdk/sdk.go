@@ -59,6 +59,6 @@ func ReportCost(endpoint *types.Endpoint, selector string, cost uint32) error {
 	})
 }
 
-func SetCustomRoute(selectorName, headerValue string, endpoint *types.Endpoint, timeout int64) error {
-	return store.MustStore().SetCustomRoute(selectorName, headerValue, endpoint, timeout)
+func SetCustomRoute(selectorName, headerValue string, endpoint *types.Endpoint, timeout int64, ignoreExisting bool) (bool, *types.Endpoint, error) {
+	return store.MustStore().SetCustomRoute(selectorName, headerValue, endpoint, timeout, ignoreExisting)
 }

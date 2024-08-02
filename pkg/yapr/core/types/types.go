@@ -33,9 +33,6 @@ type Attribute struct {
 // DynamicRouteBuffer 动态键值路由缓存
 type DynamicRouteBuffer interface {
 	Get(headerValue string) (*Endpoint, error)
-	Set(headerValue string, endpoint *Endpoint, timeout int64) error
-	Remove(headerValue string) error
-	Refresh(headerValue string)
 	Clear()
 }
 
@@ -44,4 +41,21 @@ type BufferType string
 const (
 	BufferTypeNone = BufferType("none")
 	BufferTypeLRU  = BufferType("lru")
+)
+
+type RuleError string
+
+const (
+	RuleErrorDefault      = RuleError("default")
+	RuleErrorNoEndpoint   = RuleError("no_endpoint")
+	RuleErrorSelectFailed = RuleError("select_failed")
+	RuleErrorTimeout      = RuleError("timeout")
+	RuleErrorBadEndpoint  = RuleError("bad_endpoint")
+)
+
+type ErrorHandler string
+
+const (
+	HandlerPass  = ErrorHandler("pass")
+	HandlerBlock = ErrorHandler("block")
 )

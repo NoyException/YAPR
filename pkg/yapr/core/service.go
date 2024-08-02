@@ -12,6 +12,8 @@ type Service struct {
 	endpointsSet map[types.Endpoint]struct{}   // 所有的endpoints
 	attributes   []map[string]*types.Attribute // 所有的属性，idx和endpoints对应，selectorName -> attr
 
+	UpdateNTF chan struct{} // *Service更新通知
+
 	//EndpointsAddNtf chan *Endpoint // *Endpoints更新通知
 	//EndpointsDelNtf chan *Endpoint // *Endpoints删除通知
 }
@@ -21,6 +23,8 @@ func NewService(name string) *Service {
 		Name:           name,
 		AttrMap:        make(map[types.Endpoint]map[string]*types.Attribute),
 		EndpointsByPod: make(map[string][]*types.Endpoint),
+
+		UpdateNTF: make(chan struct{}),
 		//EndpointsAddNtf: make(chan *core.Endpoint, 100),
 		//EndpointsDelNtf: make(chan *core.Endpoint, 100),
 	}
@@ -43,6 +47,10 @@ func (s *Service) update() {
 	s.endpointsSet = endpointsSet
 	s.attributes = attributes
 	s.dirty = false
+
+	ntf := s.UpdateNTF
+	s.UpdateNTF = make(chan struct{})
+	close(ntf)
 }
 
 func (s *Service) Endpoints() []*types.Endpoint {

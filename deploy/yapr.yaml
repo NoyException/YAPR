@@ -17,14 +17,15 @@ yapr:
   routers:
     - name: "echo"
       rules:
-        - priority: 0
-          matchers:
+        - matchers:
             - uri: ".*/Echo"
               port: 9090
           selector: "echo-dir"
+          error_handler:
+            no_endpoint: "pass"
+            bad_endpoint: "block"
 
-        - priority: 1
-          matchers:
+        - matchers:
             - uri: ".*/Echo"
               port: 9090
           selector: "echo-rr"

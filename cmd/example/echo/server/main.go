@@ -39,10 +39,11 @@ func (e *EchoServer) Echo(ctx context.Context, request *echopb.EchoRequest) (*ec
 		if len(values) > 0 {
 			uid := values[0]
 			logger.Debugf("uid: %s", uid)
-			err := yaprsdk.SetCustomRoute("echo-dir", uid, e.Endpoint, 0)
+			success, old, err := yaprsdk.SetCustomRoute("echo-dir", uid, e.Endpoint, 0, false)
 			if err != nil {
 				logger.Errorf("set custom route error: %v", err)
 			}
+			logger.Debugf("set custom route success: %v, old: %v", success, old)
 		}
 	}
 	return &echopb.EchoResponse{Message: *name + ": " + request.Message}, nil

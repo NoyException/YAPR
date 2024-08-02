@@ -10,15 +10,15 @@ import (
 type Store interface {
 	LoadConfig(config *config.YaprConfig) error
 	GetRouter(name string) (*core.Router, error)
-	GetSelectors() (map[string]*core.Selector, error)
-	GetServices() (map[string]*core.Service, error)
+	//GetSelectors() (map[string]*core.Selector, error)
+	//GetServices() (map[string]*core.Service, error)
 
 	RegisterService(service string, endpoints []*types.Endpoint) error
-	RegisterServiceChangeListener(listener func(service string, isPut bool, pod string, endpoints []*types.Endpoint)) // 如果autoupdate为true则不用监听
+	//RegisterServiceChangeListener(listener func(service string, isPut bool, pod string, endpoints []*types.Endpoint))
 	SetEndpointAttribute(endpoint *types.Endpoint, selector string, attribute *types.Attribute) error
-	RegisterAttributeChangeListener(listener func(endpoint *types.Endpoint, selector string, attribute *types.Attribute)) // 如果autoupdate为true则不用监听
+	//RegisterAttributeChangeListener(listener func(endpoint *types.Endpoint, selector string, attribute *types.Attribute))
 
-	SetCustomRoute(selectorName, headerValue string, endpoint *types.Endpoint, timeout int64) error
+	SetCustomRoute(selectorName, headerValue string, endpoint *types.Endpoint, timeout int64, ignoreExisting bool) (bool, *types.Endpoint, error)
 	GetCustomRoute(selectorName, headerValue string) (*types.Endpoint, error)
 	RemoveCustomRoute(selectorName, headerValue string) error
 

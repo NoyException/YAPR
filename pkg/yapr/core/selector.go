@@ -209,21 +209,17 @@ func (s *Selector) directSelect(service *Service, target *types.MatchTarget) (*t
 		return nil, ErrBufferNotFound
 	}
 
-	for i := 0; i < 3; i++ {
-		endpoint, err := s.Buffer.Get(value)
-		if endpoint == nil || err != nil {
-			s.Buffer.Refresh(value)
-			continue
-		}
-		if _, ok := endpoints[*endpoint]; !ok {
-			err := s.Buffer.Remove(value)
-			if err != nil {
-				logger.Errorf("remove endpoint %v failed: %v", endpoint, err)
-			}
-			continue
-		}
-		logger.Debugf("direct select endpoint %v by value %v", endpoint, value)
-		return endpoint, nil
+	endpoint, err := s.Buffer.Get(value)
+	if err != nil {
+		return nil, err
 	}
-	return nil, ErrNoEndpointAvailable
+	if endpoint == nil {
+		return nil, ErrNoEndpointAvailable
+	}
+	// endpoint有可能已经被删除，需要检查
+	if _, ok := endpoints[*endpoint]; !ok {
+		return endpoint, ErrBadEndpoint
+	}
+	logger.Debugf("direct select endpoint %v by value %v", endpoint, value)
+	return endpoint, nil
 }
