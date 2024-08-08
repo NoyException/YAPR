@@ -33,7 +33,7 @@ func (y *yaprPicker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 	if err != nil {
 		return balancer.PickResult{}, err
 	}
-	key := endpoint.String() + ":" + strconv.FormatUint(uint64(port), 10)
+	key := endpoint.IP + ":" + strconv.FormatUint(uint64(port), 10)
 	logger.Debugf("select %v", key)
 	subConn, ok := y.subConns[key]
 	if !ok {

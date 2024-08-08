@@ -82,7 +82,7 @@ var (
 	ErrSelectorNotFound    = New(1004, "selector not found")
 	ErrServiceNotFound     = New(1005, "service not found")
 	ErrNoEndpointAvailable = New(1006, "no endpoint available")
-	ErrBadEndpoint         = New(1007, "bad endpoint")
+	ErrEndpointUnavailable = New(1007, "bad endpoint")
 	ErrNoRuleMatched       = New(1008, "no rule matched")
 	ErrNoCustomRoute       = New(1009, "no custom route")
 	ErrNoKeyAvailable      = New(1010, "no key available (for stateful routing)")

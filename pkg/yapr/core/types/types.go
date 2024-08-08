@@ -2,6 +2,8 @@ package types
 
 import (
 	"context"
+	"encoding/json"
+	"noy/router/pkg/yapr/logger"
 )
 
 type MatchTarget struct {
@@ -23,25 +25,43 @@ const (
 )
 
 type Endpoint struct {
-	//Pod  string `yaml:"pod" json:"pod,omitempty"`   // pod
-	IP string `yaml:"ip" json:"ip,omitempty"` // ip
+	IP  string `yaml:"ip" json:"ip,omitempty"`   // ip
+	Pod string `yaml:"pod" json:"pod,omitempty"` // pod
 }
 
 func (e *Endpoint) String() string {
-	return e.IP
+	bytes, err := json.Marshal(e)
+	if err != nil {
+		logger.Errorf("Endpoint marshal error: %v", err)
+		return ""
+	}
+	return string(bytes)
 }
 
 func EndpointFromString(s string) *Endpoint {
-	return &Endpoint{IP: s}
+	e := &Endpoint{}
+	err := json.Unmarshal([]byte(s), e)
+	if err != nil {
+		logger.Errorf("Endpoint unmarshal error: %v", err)
+		return nil
+	}
+	return e
 }
 
 func (e *Endpoint) Equal(e2 *Endpoint) bool {
 	return e.IP == e2.IP
 }
 
+// Attributes 代表了一个服务的属性
+type Attributes struct {
+	Available  bool                  `yaml:"available" json:"available,omitempty"`     // 是否可用
+	InSelector map[string]*Attribute `yaml:"in_selector" json:"in_selector,omitempty"` // 在选择器中的属性
+}
+
+// Attribute 代表了一个服务中某个Endpoint的属性
 type Attribute struct {
 	Weight   uint32 `yaml:"weight" json:"weight,omitempty"`     // 权重，默认为1
-	Deadline int64  `yaml:"deadline" json:"deadline,omitempty"` // 截止时间，单位毫秒，0表示永久，-1表示已过期仅在
+	Deadline int64  `yaml:"deadline" json:"deadline,omitempty"` // 截止时间，单位毫秒，0表示永久，-1表示已过期
 }
 
 // DirectCache 动态键值路由缓存
@@ -61,11 +81,11 @@ const (
 type RuleError string
 
 const (
-	RuleErrorDefault      = RuleError("default")
-	RuleErrorNoEndpoint   = RuleError("no_endpoint")
-	RuleErrorSelectFailed = RuleError("select_failed")
-	RuleErrorTimeout      = RuleError("timeout")
-	RuleErrorBadEndpoint  = RuleError("bad_endpoint")
+	RuleErrorDefault             = RuleError("default")
+	RuleErrorNoEndpoint          = RuleError("no_endpoint")
+	RuleErrorSelectFailed        = RuleError("select_failed")
+	RuleErrorTimeout             = RuleError("timeout")
+	RuleErrorEndpointUnavailable = RuleError("unavailable")
 )
 
 type ErrorHandler string

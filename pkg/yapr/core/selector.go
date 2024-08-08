@@ -1,9 +1,7 @@
 package core
 
 import (
-	"errors"
 	"fmt"
-	"github.com/redis/go-redis/v9"
 	lua "github.com/yuin/gopher-lua"
 	"google.golang.org/grpc/metadata"
 	"hash/fnv"
@@ -61,14 +59,14 @@ func (s *Selector) Endpoints() map[types.Endpoint]*types.Attribute {
 	if len(endpoints) == 0 {
 		return result
 	}
-	attributes := service.Attributes(s.Name)
+	attributes := service.AttributesInSelector(s.Name)
 	for i := 0; i < len(endpoints); i++ {
 		result[*endpoints[i]] = attributes[i]
 	}
 	return result
 }
 
-func (s *Selector) Select(target *types.MatchTarget) (*types.Endpoint, map[string]string, error) {
+func (s *Selector) Select(target *types.MatchTarget) (endpoint *types.Endpoint, headers map[string]string, err error) {
 	start := time.Now()
 	defer func() {
 		metrics.ObserveSelectorDuration(s.Strategy, time.Since(start).Seconds())
@@ -82,26 +80,30 @@ func (s *Selector) Select(target *types.MatchTarget) (*types.Endpoint, map[strin
 
 	switch s.Strategy {
 	case types.StrategyRandom:
-		return s.randomSelect(service)
+		endpoint, headers, err = s.randomSelect(service)
 	case types.StrategyRoundRobin:
-		return s.roundRobinSelect(service)
+		endpoint, headers, err = s.roundRobinSelect(service)
 	case types.StrategyWeightedRandom:
-		return s.weightedRandomSelect(service)
+		endpoint, headers, err = s.weightedRandomSelect(service)
 	case types.StrategyWeightedRoundRobin:
-		return s.weightedRoundRobinSelect(service)
+		endpoint, headers, err = s.weightedRoundRobinSelect(service)
 	case types.StrategyLeastCost:
-		return s.leastCostSelect(service)
+		endpoint, headers, err = s.leastCostSelect(service)
 	case types.StrategyHashRing:
-		return s.hashRingSelect(service, target)
+		endpoint, headers, err = s.hashRingSelect(service, target)
 	case types.StrategyJumpConsistentHash:
-		return s.jumpConsistentHashSelect(service, target)
+		endpoint, headers, err = s.jumpConsistentHashSelect(service, target)
 	case types.StrategyDirect:
-		return s.directSelect(service, target)
+		endpoint, headers, err = s.directSelect(service, target)
 	case types.StrategyCustom:
-		return s.selectByLua(service, target)
+		endpoint, headers, err = s.selectByLua(service, target)
 	default:
-		return nil, s.baseHeaders(), fmt.Errorf("unknown strategy: %s", s.Strategy)
+		endpoint, headers, err = nil, s.baseHeaders(), fmt.Errorf("unknown strategy: %s", s.Strategy)
 	}
+	if endpoint != nil && err == nil && !service.AttrMap[*endpoint].Available {
+		err = errcode.ErrEndpointUnavailable
+	}
+	return
 }
 
 func (s *Selector) baseHeaders() map[string]string {
@@ -138,7 +140,7 @@ func (s *Selector) weightedRandomSelect(service *Service) (*types.Endpoint, map[
 	if len(endpoints) == 0 {
 		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
-	attributes := service.Attributes(s.Name)
+	attributes := service.AttributesInSelector(s.Name)
 
 	totalWeight := uint32(0)
 	for _, attr := range attributes {
@@ -160,7 +162,7 @@ func (s *Selector) weightedRoundRobinSelect(service *Service) (*types.Endpoint, 
 	if len(endpoints) == 0 {
 		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
-	attributes := service.Attributes(s.Name)
+	attributes := service.AttributesInSelector(s.Name)
 
 	s.lastIdx++
 	total := uint32(0)
@@ -183,7 +185,7 @@ func (s *Selector) leastCostSelect(service *Service) (*types.Endpoint, map[strin
 	if len(endpoints) == 0 {
 		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
-	attributes := service.Attributes(s.Name)
+	attributes := service.AttributesInSelector(s.Name)
 
 	idx := -1
 	maxWeight := uint32(0)
@@ -287,8 +289,6 @@ func (s *Selector) directSelect(service *Service, target *types.MatchTarget) (*t
 
 	endpoint, err := s.Cache.Get(value)
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
-		}
 		return nil, nil, err
 	}
 	if endpoint == nil {
@@ -298,7 +298,7 @@ func (s *Selector) directSelect(service *Service, target *types.MatchTarget) (*t
 	headers := s.baseHeaders()
 	headers["yapr-header-value"] = value
 	if _, ok := endpoints[*endpoint]; !ok {
-		return endpoint, headers, errcode.ErrBadEndpoint
+		return endpoint, headers, errcode.ErrEndpointUnavailable
 	}
 	logger.Debugf("direct select endpoint %v by value %v", endpoint, value)
 	return endpoint, headers, nil

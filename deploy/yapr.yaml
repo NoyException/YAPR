@@ -23,7 +23,7 @@ yapr:
           selector: "echo-dir"
           error_handler:
             no_endpoint: "pass"
-            bad_endpoint: "block"
+            unavailable: "block"
 
         - matchers:
             - uri: ".*/Echo"

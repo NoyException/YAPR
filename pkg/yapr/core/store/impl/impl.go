@@ -3,7 +3,7 @@ package impl
 import (
 	"context"
 	"encoding/json"
-	"github.com/google/uuid"
+	"errors"
 	"github.com/redis/go-redis/v9"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
@@ -23,15 +23,17 @@ type Impl struct {
 	etcdClient  *clientv3.Client // etcd 客户端
 	redisClient *redis.Client    // redis 客户端
 
-	uuid string
+	pod string
 
 	mu                sync.Mutex
 	setCustomRouteSha string
+
+	serviceToLease map[string]clientv3.LeaseID
 }
 
 var _ store.Store = (*Impl)(nil)
 
-func NewImpl(cfg *config.Config) (*Impl, error) { // 初始化 etcd 客户端
+func NewImpl(cfg *config.Config, pod string) (*Impl, error) { // 初始化 etcd 客户端
 	etcdClient, err := etcd.NewClient(cfg.Etcd)
 	if err != nil {
 		panic(err)
@@ -48,7 +50,11 @@ func NewImpl(cfg *config.Config) (*Impl, error) { // 初始化 etcd 客户端
 		etcdClient:  etcdClient,
 		redisClient: redisClient,
 
-		uuid: uuid.New().String(),
+		pod: pod,
+
+		mu: sync.Mutex{},
+
+		serviceToLease: make(map[string]clientv3.LeaseID),
 	}
 
 	err = newImpl.LoadConfig(cfg.Yapr)
@@ -181,49 +187,65 @@ func (s *Impl) GetSelectors() (map[string]*types.Selector, error) {
 	return selectors, nil
 }
 
+type ServiceChangeType int
+
+const (
+	ServiceChangeTypePut ServiceChangeType = iota
+	ServiceChangeTypeDelete
+	ServiceChangeTypeTimeout
+)
+
 func (s *Impl) GetServices() (map[string]*types.Service, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	services := make(map[string]*types.Service)
 	// 监听服务的节点变化
-	s.RegisterServiceChangeListener(func(service string, isPut bool, pod string, endpoints []*types.Endpoint) {
+	s.RegisterServiceChangeListener(func(service string, changeType ServiceChangeType, pod string, endpoints []*types.Endpoint) {
 		svc := services[service]
 		svc.SetDirty()
-		if isPut {
+		switch changeType {
+		case ServiceChangeTypePut:
 			for _, endpoint := range endpoints {
-				svc.AttrMap[*endpoint] = make(map[string]*types.Attribute)
+				svc.AttrMap[*endpoint] = &types.Attributes{
+					Available:  true,
+					InSelector: make(map[string]*types.Attribute),
+				}
 			}
 			svc.EndpointsByPod[pod] = endpoints
-		} else {
+		case ServiceChangeTypeDelete:
 			logger.Infof("delete pod: %v in service %v", pod, service)
 			endpoints = svc.EndpointsByPod[pod]
 			for _, endpoint := range endpoints {
 				logger.Debugf("delete endpoint: %v in service %v", endpoint, service)
 				delete(svc.AttrMap, *endpoint)
-				for ep, _ := range svc.AttrMap {
+				for ep := range svc.AttrMap {
 					if ep.Equal(endpoint) {
 						logger.Errorf("failed to delete endpoint: %v in service %v", endpoint, service)
 					}
 				}
 			}
 			delete(svc.EndpointsByPod, pod)
+		case ServiceChangeTypeTimeout:
+			for _, endpoint := range svc.EndpointsByPod[pod] {
+				svc.AttrMap[*endpoint].Available = false
+			}
 		}
 	})
 
 	// 获取所有服务
-	response, err := s.etcdClient.Get(ctx, "svc/", clientv3.WithPrefix())
+	response, err := s.etcdClient.Get(ctx, "svc/data/", clientv3.WithPrefix())
 	if err != nil {
 		return nil, err
 	}
 	for _, kv := range response.Kvs {
 		splits := strings.Split(string(kv.Key), "/")
-		if len(splits) != 3 {
+		if len(splits) != 4 {
 			logger.Warnf("invalid key: %s", kv.Key)
 			continue
 		}
-		name := splits[1]
-		id := splits[2]
+		name := splits[2]
+		id := splits[3]
 		service, ok := services[name]
 		// 如果服务不存在，则创建一个新的服务
 		if !ok {
@@ -267,28 +289,30 @@ func (s *Impl) GetServices() (map[string]*types.Service, error) {
 	return services, nil
 }
 
-func (s *Impl) RegisterService(service string, endpoints []*types.Endpoint) error {
+func (s *Impl) RegisterService(service string, endpoints []*types.Endpoint) (chan struct{}, error) {
 	bytes, err := json.Marshal(endpoints)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// 创建一个5秒的租约
 	leaseResp, err := s.etcdClient.Grant(context.Background(), 5)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	leaseID := leaseResp.ID
 
 	// 启动一个 goroutine 来保持租约的活跃状态
 	ch, err := s.etcdClient.KeepAlive(context.Background(), leaseID)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	keepAliveCh := make(chan struct{})
 	go func() {
 		for {
 			resp := <-ch
 			if resp == nil {
+				close(keepAliveCh)
 				return
 			}
 		}
@@ -296,11 +320,42 @@ func (s *Impl) RegisterService(service string, endpoints []*types.Endpoint) erro
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err = s.etcdClient.Put(ctx, "svc/"+service+"/"+s.uuid, string(bytes), clientv3.WithLease(leaseID))
-	return err
+	_, err = s.etcdClient.Put(ctx, "svc/lease/"+service+"/"+s.pod, "1", clientv3.WithLease(leaseID))
+	if err != nil {
+		// 关闭租约
+		_, _ = s.etcdClient.Revoke(context.Background(), leaseID)
+		return nil, err
+	}
+	s.serviceToLease[service] = leaseID
+	_, err = s.etcdClient.Put(ctx, "svc/data/"+service+"/"+s.pod, string(bytes))
+	return keepAliveCh, err
 }
 
-func (s *Impl) RegisterServiceChangeListener(listener func(service string, isPut bool, pod string, endpoints []*types.Endpoint)) {
+func (s *Impl) UnregisterService(service string) error {
+	leaseID, ok := s.serviceToLease[service]
+	if !ok {
+		return nil
+	}
+	_, err := s.etcdClient.Revoke(context.Background(), leaseID)
+	if err != nil {
+		return err
+	}
+	delete(s.serviceToLease, service)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = s.etcdClient.Delete(ctx, "svc/lease/"+service+"/"+s.pod)
+	if err != nil {
+		logger.Errorf("delete lease error: %v", err)
+	}
+	_, err = s.etcdClient.Delete(ctx, "svc/data/"+service+"/"+s.pod)
+	if err != nil {
+		logger.Errorf("delete data error: %v", err)
+	}
+	return nil
+}
+
+func (s *Impl) RegisterServiceChangeListener(listener func(service string, changeType ServiceChangeType, pod string, endpoints []*types.Endpoint)) {
 	go func() {
 		watchChan := s.etcdClient.Watch(context.Background(), "svc/", clientv3.WithPrefix())
 		for watchResp := range watchChan {
@@ -308,15 +363,23 @@ func (s *Impl) RegisterServiceChangeListener(listener func(service string, isPut
 				key := string(event.Kv.Key)
 				value := event.Kv.Value
 				splits := strings.Split(key, "/")
-				if len(splits) != 3 {
+				if len(splits) != 4 {
 					logger.Warnf("invalid key: %s", key)
 					continue
 				}
-				service := splits[1]
-				id := splits[2]
+				isLease := splits[1] == "lease"
+				service := splits[2]
+				id := splits[3]
 
-				if event.Type == clientv3.EventTypeDelete { // TODO: 区分是超时还是注销
-					listener(service, false, id, nil)
+				if event.Type == clientv3.EventTypeDelete {
+					if isLease {
+						listener(service, ServiceChangeTypeTimeout, id, nil)
+					} else {
+						listener(service, ServiceChangeTypeDelete, id, nil)
+					}
+					continue
+				}
+				if isLease {
 					continue
 				}
 
@@ -326,7 +389,7 @@ func (s *Impl) RegisterServiceChangeListener(listener func(service string, isPut
 					logger.Warnf("unmarshal endpoints error: %v", err)
 					continue
 				}
-				listener(service, true, id, endpoints)
+				listener(service, ServiceChangeTypePut, id, endpoints)
 			}
 		}
 	}()
@@ -438,6 +501,9 @@ return {1, existing} -- 键值对不存在/已过期/忽略已存在，插入成
 func (s *Impl) GetCustomRoute(selectorName, headerValue string) (*types.Endpoint, error) {
 	endpoint, err := s.redisClient.HGet(context.Background(), "_end_point_"+selectorName, headerValue).Result()
 	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, errcode.ErrNoCustomRoute
+		}
 		return nil, err
 	}
 	if endpoint == "" {

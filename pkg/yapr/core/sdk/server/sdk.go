@@ -19,8 +19,10 @@ import (
 var yaprSDK *YaprSDK
 
 type YaprSDK struct {
-	endpoints    map[types.Endpoint]struct{} // 本地服务端的所有Endpoint
-	routingTable RoutingTable                // 与本地服务端的Endpoint有关的路由表
+	endpoints          map[types.Endpoint]struct{} // 本地服务端的所有Endpoint
+	endpointsByService map[string][]*types.Endpoint
+	routingTable       RoutingTable // 与本地服务端的Endpoint有关的路由表
+	pod                string
 
 	mu sync.RWMutex
 
@@ -28,8 +30,8 @@ type YaprSDK struct {
 	cancel            store.CancelFunc
 }
 
-// Init 初始化路由配置，客户端服务端都需要调用
-func Init(configPath string) *YaprSDK {
+// Init 初始化路由配置
+func Init(configPath, pod string) *YaprSDK {
 	if yaprSDK != nil {
 		return yaprSDK
 	}
@@ -37,15 +39,17 @@ func Init(configPath string) *YaprSDK {
 	if err != nil {
 		panic(err)
 	}
-	st, err := impl.NewImpl(cfg)
+	st, err := impl.NewImpl(cfg, pod)
 	store.RegisterStore(st)
 	if err != nil {
 		panic(err)
 	}
 
 	yaprSDK = &YaprSDK{
-		endpoints:    make(map[types.Endpoint]struct{}),
-		routingTable: NewRoutingTable(),
+		endpoints:          make(map[types.Endpoint]struct{}),
+		endpointsByService: make(map[string][]*types.Endpoint),
+		routingTable:       NewRoutingTable(),
+		pod:                pod,
 
 		mu: sync.RWMutex{},
 
@@ -145,25 +149,39 @@ func (y *YaprSDK) GRPCServerInterceptor(ctx context.Context, req any, info *grpc
 	return handler(ctx, req)
 }
 
-// RegisterService 服务注册，服务端调用
-func (y *YaprSDK) RegisterService(serviceName string, endpoints []*types.Endpoint) error {
-	err := store.MustStore().RegisterService(serviceName, endpoints)
+// RegisterService 服务注册，当返回的 channel 被关闭时，表示服务掉线，需要重新注册
+func (y *YaprSDK) RegisterService(serviceName string, endpoints []*types.Endpoint) (chan struct{}, error) {
+	ch, err := store.MustStore().RegisterService(serviceName, endpoints)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	y.endpoints = make(map[types.Endpoint]struct{})
 	for _, endpoint := range endpoints {
 		y.endpoints[*endpoint] = struct{}{}
 	}
+	y.endpointsByService[serviceName] = endpoints
+	return ch, nil
+}
+
+// UnregisterService 服务注销
+func (y *YaprSDK) UnregisterService(serviceName string) error {
+	err := store.MustStore().UnregisterService(serviceName)
+	if err != nil {
+		return err
+	}
+	endpoints := y.endpointsByService[serviceName]
+	for _, endpoint := range endpoints {
+		delete(y.endpoints, *endpoint)
+	}
+	delete(y.endpointsByService, serviceName)
 	return nil
 }
 
-// SetEndpointAttribute 设置服务端某Endpoint属性，服务端调用
+// SetEndpointAttribute 设置服务端某Endpoint属性
 func (y *YaprSDK) SetEndpointAttribute(endpoint *types.Endpoint, selector string, attribute *types.Attribute) error {
 	return store.MustStore().SetEndpointAttribute(endpoint, selector, attribute)
 }
 
-// ReportCost 上报服务端某Endpoint的开销，仅限least_cost路由策略使用，服务端调用
+// ReportCost 上报服务端某Endpoint的开销，仅限least_cost路由策略使用
 func (y *YaprSDK) ReportCost(endpoint *types.Endpoint, selector string, cost uint32) error {
 	return y.SetEndpointAttribute(endpoint, selector, &types.Attribute{
 		Weight: math.MaxUint32 - cost,
@@ -198,4 +216,11 @@ func (y *YaprSDK) GetEndpoints(selectorName string) map[types.Endpoint]*types.At
 		return nil
 	}
 	return selector.Endpoints()
+}
+
+func (y *YaprSDK) NewEndpoint(ip string) *types.Endpoint {
+	return &types.Endpoint{
+		IP:  ip,
+		Pod: y.pod,
+	}
 }

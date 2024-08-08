@@ -86,6 +86,7 @@ func (r *Router) Route(target *types.MatchTarget) (string, *types.Endpoint, uint
 			continue
 		}
 
+		// TODO: 删除该种直连的支持
 		if r.Direct != "" {
 			ip, port, err := parseTarget(r.Direct)
 			return "", &types.Endpoint{IP: ip}, port, nil, err
@@ -100,12 +101,12 @@ func (r *Router) Route(target *types.MatchTarget) (string, *types.Endpoint, uint
 
 		if err != nil {
 			var handler *types.ErrorHandler
-			if errors.Is(err, errcode.ErrNoEndpointAvailable) {
+			if errors.Is(err, errcode.ErrNoEndpointAvailable) || errors.Is(err, errcode.ErrNoCustomRoute) {
 				if h, ok := rule.ErrorHandler[types.RuleErrorNoEndpoint]; ok {
 					handler = h
 				}
-			} else if errors.Is(err, errcode.ErrBadEndpoint) {
-				if h, ok := rule.ErrorHandler[types.RuleErrorBadEndpoint]; ok {
+			} else if errors.Is(err, errcode.ErrEndpointUnavailable) {
+				if h, ok := rule.ErrorHandler[types.RuleErrorEndpointUnavailable]; ok {
 					handler = h
 				}
 			} else {

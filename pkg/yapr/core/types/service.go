@@ -1,14 +1,14 @@
 package types
 
 type Service struct {
-	Name           string                             `yaml:"name" json:"name,omitempty"`          // #唯一名称
-	AttrMap        map[Endpoint]map[string]*Attribute `yaml:"-" json:"attr_map,omitempty"`         // *每个endpoint和他在某个 Selector 中的属性【etcd中保存为slt/$Name/AttrMap_$Endpoint -> $Attr】
-	EndpointsByPod map[string][]*Endpoint             `yaml:"-" json:"endpoints_by_pod,omitempty"` // *每个pod对应的endpoints，【etcd不保存】
+	Name           string                   `yaml:"name" json:"name,omitempty"`          // #唯一名称
+	AttrMap        map[Endpoint]*Attributes `yaml:"-" json:"attr_map,omitempty"`         // *每个endpoint和他的属性
+	EndpointsByPod map[string][]*Endpoint   `yaml:"-" json:"endpoints_by_pod,omitempty"` // *每个pod对应的endpoints
 
-	dirty        bool                    // 是否需要更新endpoints
-	endpoints    []*Endpoint             // 所有的endpoints
-	endpointsSet map[Endpoint]struct{}   // 所有的endpoints
-	attributes   []map[string]*Attribute // 所有的属性，idx和endpoints对应，selectorName -> attr
+	dirty        bool                  // 是否需要更新endpoints
+	endpoints    []*Endpoint           // 所有的endpoints
+	endpointsSet map[Endpoint]struct{} // 所有的endpoints
+	attributes   []*Attributes         // 所有的属性，idx和endpoints对应
 
 	UpdateNTF chan struct{} // *Service更新通知
 }
@@ -16,7 +16,7 @@ type Service struct {
 func NewService(name string) *Service {
 	return &Service{
 		Name:           name,
-		AttrMap:        make(map[Endpoint]map[string]*Attribute),
+		AttrMap:        make(map[Endpoint]*Attributes),
 		EndpointsByPod: make(map[string][]*Endpoint),
 
 		UpdateNTF: make(chan struct{}),
@@ -30,7 +30,7 @@ func (s *Service) SetDirty() {
 func (s *Service) update() {
 	endpoints := make([]*Endpoint, 0)
 	endpointsSet := make(map[Endpoint]struct{})
-	attributes := make([]map[string]*Attribute, 0)
+	attributes := make([]*Attributes, 0)
 	for endpoint, attr := range s.AttrMap {
 		endpoints = append(endpoints, &endpoint)
 		endpointsSet[endpoint] = struct{}{}
@@ -67,29 +67,33 @@ func NewDefaultAttr() *Attribute {
 	}
 }
 
-func (s *Service) Attributes(selector string) []*Attribute {
+func (s *Service) AttributesInSelector(selector string) []*Attribute {
 	if s.dirty {
 		s.update()
 	}
 	attrs := make([]*Attribute, 0)
 	for _, attrMap := range s.attributes {
-		if attr, ok := attrMap[selector]; ok {
+		if attr, ok := attrMap.InSelector[selector]; ok {
 			attrs = append(attrs, attr)
 		} else {
 			attr := NewDefaultAttr()
-			attrMap[selector] = attr
+			attrMap.InSelector[selector] = attr
 			attrs = append(attrs, attr)
 		}
 	}
 	return attrs
 }
 
+// SetAttribute 设置endpoint的属性，需要调用方保证endpoint已经存在才能调用
 func (s *Service) SetAttribute(endpoint *Endpoint, selector string, attr *Attribute) {
 	m, ok := s.AttrMap[*endpoint]
 	if !ok {
-		m = make(map[string]*Attribute)
+		m = &Attributes{
+			Available:  true,
+			InSelector: make(map[string]*Attribute),
+		}
 		s.AttrMap[*endpoint] = m
 	}
-	m[selector] = attr
+	m.InSelector[selector] = attr
 	s.SetDirty()
 }

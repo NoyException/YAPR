@@ -2,6 +2,7 @@ package yaprsdk
 
 import (
 	"context"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"noy/router/pkg/yapr/core"
 	"noy/router/pkg/yapr/core/config"
@@ -16,9 +17,10 @@ import (
 var yaprSDK *YaprSDK
 
 type YaprSDK struct {
+	pod string
 }
 
-// Init 初始化路由配置，客户端服务端都需要调用
+// Init 初始化路由配置
 func Init(configPath string) *YaprSDK {
 	if yaprSDK != nil {
 		return yaprSDK
@@ -27,13 +29,16 @@ func Init(configPath string) *YaprSDK {
 	if err != nil {
 		panic(err)
 	}
-	st, err := impl.NewImpl(cfg)
+	pod := uuid.New().String()
+	st, err := impl.NewImpl(cfg, pod)
 	store.RegisterStore(st)
 	if err != nil {
 		panic(err)
 	}
 
-	yaprSDK = &YaprSDK{}
+	yaprSDK = &YaprSDK{
+		pod: pod,
+	}
 	return yaprSDK
 }
 

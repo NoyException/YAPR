@@ -13,8 +13,11 @@ import (
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
 	"noy/router/pkg/yapr/metrics"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -40,11 +43,11 @@ func (e *EchoServer) Echo(ctx context.Context, request *echopb.EchoRequest) (*ec
 		if len(values) > 0 {
 			uid := values[0]
 			logger.Debugf("uid: %s", uid)
-			success, old, err := yaprsdk.MustInstance().SetCustomRoute("echo-dir", uid, e.Endpoint, 0, false)
-			if err != nil {
-				logger.Errorf("set custom route error: %v", err)
-			}
-			logger.Debugf("set custom route success: %v, old: %v", success, old)
+			//success, old, err := yaprsdk.MustInstance().SetCustomRoute("echo-dir", uid, e.Endpoint, 0, false)
+			//if err != nil {
+			//	logger.Errorf("set custom route error: %v", err)
+			//}
+			//logger.Debugf("set custom route success: %v, old: %v", success, old)
 		}
 	}
 	return &echopb.EchoResponse{Message: *name + ": " + request.Message}, nil
@@ -67,16 +70,14 @@ func main() {
 		panic(err)
 	}
 
-	sdk := yaprsdk.Init(*configPath)
+	sdk := yaprsdk.Init(*configPath, *name)
 	sdk.SetMigrationListener(func(selectorName, headerValue string, from, to *types.Endpoint) {
 		logger.Infof("migration: %s, %s, %v, %v", selectorName, headerValue, from, to)
 	})
 
 	s := grpc.NewServer(grpc.UnaryInterceptor(sdk.GRPCServerInterceptor))
 	defer s.Stop()
-	endpoint := &types.Endpoint{
-		IP: strings.Split(*addr, ":")[0],
-	}
+	endpoint := sdk.NewEndpoint(strings.Split(*addr, ":")[0])
 	echopb.RegisterEchoServiceServer(s, &EchoServer{
 		Endpoint: endpoint,
 	})
@@ -94,15 +95,33 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		err = sdk.RegisterService("echosvr", []*types.Endpoint{endpoint})
-		if err != nil {
-			panic(err)
+		for {
+			ch, err := sdk.RegisterService("echosvr", []*types.Endpoint{endpoint})
+			if err != nil {
+				panic(err)
+			}
+			<-ch
 		}
+	}()
+
+	// 捕获 SIGTERM 信号
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+
+	go func() {
+		<-sigChan
+		logger.Infof("Received shutdown signal, performing cleanup...")
+		// 执行收尾工作
+		err := sdk.UnregisterService("echosvr")
+		if err != nil {
+			logger.Errorf("unregister service error: %v", err)
+		}
+		s.Stop()
+		os.Exit(0)
 	}()
 
 	log.Printf("server listening at %v", l.Addr())
 	if err := s.Serve(l); err != nil {
 		panic(err)
 	}
-
 }
