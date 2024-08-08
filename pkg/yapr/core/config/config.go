@@ -2,7 +2,7 @@ package config
 
 import (
 	"gopkg.in/yaml.v3"
-	"noy/router/pkg/yapr/core"
+	"noy/router/pkg/yapr/core/types"
 	"os"
 	"time"
 )
@@ -28,9 +28,9 @@ type RedisConfig struct {
 
 // YaprConfig 代表了所有路由的配置
 type YaprConfig struct {
-	Version   string           `yaml:"version" json:"version,omitempty"`     // #版本号
-	Routers   []*core.Router   `yaml:"routers" json:"routers,omitempty"`     // #所有服务网格
-	Selectors []*core.Selector `yaml:"selectors" json:"selectors,omitempty"` // #所有路由选择器
+	Version   string            `yaml:"version" json:"version,omitempty"`     // #版本号
+	Routers   []*types.Router   `yaml:"routers" json:"routers,omitempty"`     // #所有服务网格
+	Selectors []*types.Selector `yaml:"selectors" json:"selectors,omitempty"` // #所有路由选择器
 }
 
 // LoadConfig 加载配置

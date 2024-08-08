@@ -3,33 +3,37 @@ package core
 import (
 	"errors"
 	"google.golang.org/grpc/metadata"
+	"noy/router/pkg/yapr/core/errcode"
+	"noy/router/pkg/yapr/core/store"
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
 	"regexp"
+	"strconv"
+	"strings"
 )
-
-type Matcher struct {
-	URI     string            `yaml:"uri" json:"uri,omitempty"`         // #方法名regex
-	Port    uint32            `yaml:"port" json:"port,omitempty"`       // #Router 端口
-	Headers map[string]string `yaml:"headers" json:"headers,omitempty"` // #对header的filters，对于所有header key都要满足指定regex
-}
-
-// Rule 代表了一条路由规则，包含了匹配规则和目的地服务网格
-type Rule struct {
-	Matchers     []*Matcher                              `yaml:"matchers" json:"matchers,omitempty"`           // #匹配规则，满足任意一个规则则匹配成功
-	Selector     string                                  `yaml:"selector" json:"selector,omitempty"`           // #路由目的地选择器
-	ErrorHandler map[types.RuleError]*types.ErrorHandler `yaml:"error_handler" json:"error_handler,omitempty"` // #错误处理
-}
 
 // Router 代表了一个服务网格的所有路由规则
 type Router struct {
-	Name           string               `yaml:"name" json:"name,omitempty"`   // #服务网格名
-	Rules          []*Rule              `yaml:"rules" json:"rules,omitempty"` // #路由规则，按优先级从高到低排序
-	SelectorByName map[string]*Selector `yaml:"-" json:"-"`                   // #所有路由选择器，用于快速查找
-	ServiceByName  map[string]*Service  `yaml:"-" json:"-"`                   // #所有服务，用于快速查找
+	*types.Router
 }
 
-func (m *Matcher) Match(target *types.MatchTarget) bool {
+var routers = make(map[string]*Router)
+
+func GetRouter(name string) (*Router, error) {
+	if router, ok := routers[name]; ok {
+		return router, nil
+	}
+	raw, err := store.MustStore().GetRouter(name)
+	if err != nil {
+		logger.Errorf("router %s not found", name)
+		return nil, err
+	}
+	router := &Router{Router: raw}
+	routers[name] = router
+	return router, nil
+}
+
+func Match(m *types.Matcher, target *types.MatchTarget) bool {
 	matched, err := regexp.Match(m.URI, []byte(target.URI))
 	if err != nil || !matched {
 		return false
@@ -52,78 +56,103 @@ func (m *Matcher) Match(target *types.MatchTarget) bool {
 	return true
 }
 
-func (r *Rule) Match(target *types.MatchTarget) bool {
+func MatchRule(r *types.Rule, target *types.MatchTarget) bool {
 	for _, matcher := range r.Matchers {
-		if matcher.Match(target) {
+		if Match(matcher, target) {
 			return true
 		}
 	}
 	return false
 }
 
-func (r *Router) Route(target *types.MatchTarget) (string, *types.Endpoint, uint32, metadata.MD, error) {
+func parseTarget(target string) (string, uint32, error) {
+	splits := strings.Split(target, ":")
+	if len(splits) > 2 {
+		return "", 0, errors.New("error format routerName")
+	}
+	if len(splits) == 1 {
+		return target, 9090, nil
+	}
+	port, err := strconv.ParseUint(splits[1], 10, 32)
+	if err != nil {
+		return "", 0, err
+	}
+	return splits[0], uint32(port), nil
+}
+
+func (r *Router) Route(target *types.MatchTarget) (string, *types.Endpoint, uint32, map[string]string, error) {
 	for _, rule := range r.Rules {
-		if !rule.Match(target) {
+		if !MatchRule(rule, target) {
 			continue
 		}
 
-		if selector, ok := r.SelectorByName[rule.Selector]; ok {
-			service, ok := r.ServiceByName[selector.Service]
-			if !ok {
-				logger.Warnf("service %s not found", selector.Service)
-				continue
+		if r.Direct != "" {
+			ip, port, err := parseTarget(r.Direct)
+			return "", &types.Endpoint{IP: ip}, port, nil, err
+		}
+
+		selector, err := GetSelector(rule.Selector)
+		if err != nil {
+			logger.Warnf("selector %s not found", rule.Selector)
+		}
+
+		endpoint, headers, err := selector.Select(target)
+
+		if err != nil {
+			var handler *types.ErrorHandler
+			if errors.Is(err, errcode.ErrNoEndpointAvailable) {
+				if h, ok := rule.ErrorHandler[types.RuleErrorNoEndpoint]; ok {
+					handler = h
+				}
+			} else if errors.Is(err, errcode.ErrBadEndpoint) {
+				if h, ok := rule.ErrorHandler[types.RuleErrorBadEndpoint]; ok {
+					handler = h
+				}
+			} else {
+				if h, ok := rule.ErrorHandler[types.RuleErrorDefault]; ok {
+					handler = h
+				}
 			}
-			endpoint, err := selector.Select(service, target)
 
-			if err != nil {
-				var handler *types.ErrorHandler
-				if errors.Is(err, ErrNoEndpointAvailable) {
-					if h, ok := rule.ErrorHandler[types.RuleErrorNoEndpoint]; ok {
-						handler = h
-					}
-				} else if errors.Is(err, ErrBadEndpoint) {
-					if h, ok := rule.ErrorHandler[types.RuleErrorBadEndpoint]; ok {
-						handler = h
-					}
-				} else {
-					if h, ok := rule.ErrorHandler[types.RuleErrorDefault]; ok {
-						handler = h
-					}
-				}
+			if handler == nil {
+				logger.Errorf("selector %s select failed: %v", rule.Selector, err)
+				return "", nil, 0, nil, err
+			}
 
-				if handler == nil {
-					logger.Errorf("selector %s select failed: %v", rule.Selector, err)
-					return "", nil, 0, nil, err
-				}
-
-				switch *handler {
-				case types.HandlerPass:
-					logger.Infof("selector %s select failed: %v, move to the next rule", rule.Selector, err)
+			switch *handler {
+			case types.HandlerPass:
+				logger.Infof("selector %s select failed: %v, move to the next rule", rule.Selector, err)
+				continue
+			case types.HandlerBlock:
+				service, err := GetService(selector.Service)
+				if err != nil {
+					logger.Warnf("service %s not found", selector.Service)
 					continue
-				case types.HandlerBlock:
-					flag := true
-					for flag {
-						select {
-						case <-target.Ctx.Done():
-							return "", nil, 0, nil, ErrContextCanceled
-						case <-service.UpdateNTF:
-							if endpoint == nil {
-								break
-							}
-							if _, ok := service.EndpointsSet()[*endpoint]; ok {
-								flag = false
-								break
-							}
+				}
+				flag := true
+				for flag {
+					select {
+					case <-target.Ctx.Done():
+						return "", nil, 0, nil, errcode.ErrContextCanceled
+					case <-service.UpdateNTF:
+						if endpoint == nil {
+							break
+						}
+						if _, ok := service.EndpointsSet()[*endpoint]; ok {
+							flag = false
+							break
 						}
 					}
 				}
 			}
-			return selector.Service, endpoint, selector.Port, metadata.New(selector.Headers), nil
-		} else {
-			logger.Warnf("selector %s not found", rule.Selector)
 		}
+
+		if headers != nil {
+			headers["yapr-router"] = r.Name
+		}
+		return selector.Service, endpoint, selector.Port, headers, nil
 	}
-	return "", nil, 0, nil, ErrNoRuleMatched
+	return "", nil, 0, nil, errcode.ErrNoRuleMatched
 }
 
 func (r *Router) Selectors() []*Selector {
@@ -133,7 +162,12 @@ func (r *Router) Selectors() []*Selector {
 	}
 	selectors := make([]*Selector, 0, len(selectorNames))
 	for name, _ := range selectorNames {
-		selectors = append(selectors, r.SelectorByName[name])
+		selector, err := GetSelector(name)
+		if err != nil {
+			logger.Warnf("selector %s not found", name)
+			continue
+		}
+		selectors = append(selectors, selector)
 	}
 	return selectors
 }

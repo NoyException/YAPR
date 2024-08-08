@@ -9,7 +9,7 @@ import (
 	"log"
 	"net"
 	"noy/router/cmd/example/echo/echopb"
-	"noy/router/pkg/yapr/core/sdk"
+	"noy/router/pkg/yapr/core/sdk/server"
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
 	"noy/router/pkg/yapr/metrics"
@@ -40,7 +40,7 @@ func (e *EchoServer) Echo(ctx context.Context, request *echopb.EchoRequest) (*ec
 		if len(values) > 0 {
 			uid := values[0]
 			logger.Debugf("uid: %s", uid)
-			success, old, err := yaprsdk.SetCustomRoute("echo-dir", uid, e.Endpoint, 0, false)
+			success, old, err := yaprsdk.MustInstance().SetCustomRoute("echo-dir", uid, e.Endpoint, 0, false)
 			if err != nil {
 				logger.Errorf("set custom route error: %v", err)
 			}
@@ -66,7 +66,13 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	s := grpc.NewServer()
+
+	sdk := yaprsdk.Init(*configPath)
+	sdk.SetMigrationListener(func(selectorName, headerValue string, from, to *types.Endpoint) {
+		logger.Infof("migration: %s, %s, %v, %v", selectorName, headerValue, from, to)
+	})
+
+	s := grpc.NewServer(grpc.UnaryInterceptor(sdk.GRPCServerInterceptor))
 	defer s.Stop()
 	endpoint := &types.Endpoint{
 		IP: strings.Split(*addr, ":")[0],
@@ -82,14 +88,13 @@ func main() {
 			logger.Warnf("convert weight error: %v", err)
 			w = 1
 		}
-		yaprsdk.Init(*configPath)
-		err = yaprsdk.SetEndpointAttribute(endpoint, "s1", &types.Attribute{
+		err = sdk.SetEndpointAttribute(endpoint, "s1", &types.Attribute{
 			Weight: uint32(w),
 		})
 		if err != nil {
 			panic(err)
 		}
-		err = yaprsdk.RegisterService("echosvr", []*types.Endpoint{endpoint})
+		err = sdk.RegisterService("echosvr", []*types.Endpoint{endpoint})
 		if err != nil {
 			panic(err)
 		}

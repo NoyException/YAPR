@@ -1,10 +1,15 @@
 package core
 
 import (
+	"errors"
 	"fmt"
+	"github.com/redis/go-redis/v9"
+	lua "github.com/yuin/gopher-lua"
 	"google.golang.org/grpc/metadata"
 	"hash/fnv"
 	"math/rand/v2"
+	"noy/router/pkg/yapr/core/errcode"
+	"noy/router/pkg/yapr/core/store"
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
 	"noy/router/pkg/yapr/metrics"
@@ -13,26 +18,67 @@ import (
 
 // Selector 全名是Endpoint Selector，指定了目标service和选择策略【以json格式存etcd】
 type Selector struct {
-	Name       string            `yaml:"name" json:"name,omitempty"`               // #唯一名称
-	Service    string            `yaml:"service" json:"service,omitempty"`         // #目标服务
-	Port       uint32            `yaml:"port" json:"port,omitempty"`               // #目标端口
-	Headers    map[string]string `yaml:"headers" json:"headers,omitempty"`         // #路由成功后为请求添加的headers
-	Strategy   types.Strategy    `yaml:"strategy" json:"strategy,omitempty"`       // #路由策略，默认为random
-	Key        string            `yaml:"key" json:"key,omitempty"`                 // #用于从header中获取路由用的value，仅在一致性哈希和指定目标策略下有效
-	BufferType types.BufferType  `yaml:"buffer_type" json:"buffer_type,omitempty"` // #动态键值路由缓存类型，仅在指定目标策略下有效，默认为none
-	BufferSize uint32            `yaml:"buffer_size" json:"buffer_size,omitempty"` // #动态键值路由缓存大小，仅在指定目标策略下有效，默认为4096
-	//DirectMap    map[string]Endpoint `yaml:"-" json:"direct_map,omitempty"`      // 指定目标路由，从redis现存现取，表名$SelectorName，键值对为header value -> Endpoint
-
-	Buffer types.DynamicRouteBuffer `yaml:"-" json:"-"` // 动态路由缓存
+	*types.Selector
 
 	lastIdx uint32 // 上次选择的endpoint索引
 }
 
-func (s *Selector) Select(service *Service, target *types.MatchTarget) (*types.Endpoint, error) {
+var selectors map[string]*Selector
+
+func GetSelector(name string) (*Selector, error) {
+	if selectors == nil {
+		s, err := store.MustStore().GetSelectors()
+		if err != nil {
+			logger.Errorf("selectors not found")
+			return nil, err
+		}
+		selectors = make(map[string]*Selector)
+		for selectorName, raw := range s {
+			selectors[selectorName] = &Selector{Selector: raw}
+		}
+	}
+	if selector, ok := selectors[name]; ok {
+		return selector, nil
+	}
+	return nil, errcode.ErrSelectorNotFound
+}
+
+func (s *Selector) RefreshCache(headerValue string) {
+	if s.Cache == nil {
+		return
+	}
+	s.Cache.Refresh(headerValue)
+}
+
+func (s *Selector) Endpoints() map[types.Endpoint]*types.Attribute {
+	result := make(map[types.Endpoint]*types.Attribute)
+	service, err := GetService(s.Service)
+	if err != nil {
+		logger.Errorf("get service %s failed: %v", s.Service, err)
+		return result
+	}
+	endpoints := service.Endpoints()
+	if len(endpoints) == 0 {
+		return result
+	}
+	attributes := service.Attributes(s.Name)
+	for i := 0; i < len(endpoints); i++ {
+		result[*endpoints[i]] = attributes[i]
+	}
+	return result
+}
+
+func (s *Selector) Select(target *types.MatchTarget) (*types.Endpoint, map[string]string, error) {
 	start := time.Now()
 	defer func() {
-		metrics.ObserveSelectorDuration(string(s.Strategy), time.Since(start).Seconds())
+		metrics.ObserveSelectorDuration(s.Strategy, time.Since(start).Seconds())
 	}()
+
+	service, err := GetService(s.Service)
+	if err != nil {
+		logger.Errorf("get service %s failed: %v", s.Service, err)
+		return nil, nil, err
+	}
 
 	switch s.Strategy {
 	case types.StrategyRandom:
@@ -45,36 +91,52 @@ func (s *Selector) Select(service *Service, target *types.MatchTarget) (*types.E
 		return s.weightedRoundRobinSelect(service)
 	case types.StrategyLeastCost:
 		return s.leastCostSelect(service)
-	case types.StrategyConsistentHash:
-		return s.consistentHashSelect(service, target)
+	case types.StrategyHashRing:
+		return s.hashRingSelect(service, target)
+	case types.StrategyJumpConsistentHash:
+		return s.jumpConsistentHashSelect(service, target)
 	case types.StrategyDirect:
 		return s.directSelect(service, target)
+	case types.StrategyCustom:
+		return s.selectByLua(service, target)
 	default:
-		return nil, fmt.Errorf("unknown strategy: %s", s.Strategy)
+		return nil, s.baseHeaders(), fmt.Errorf("unknown strategy: %s", s.Strategy)
 	}
 }
 
-func (s *Selector) randomSelect(service *Service) (*types.Endpoint, error) {
-	endpoints := service.Endpoints()
-	if len(endpoints) == 0 {
-		return nil, ErrNoEndpointAvailable
+func (s *Selector) baseHeaders() map[string]string {
+	headers := map[string]string{
+		"yapr-strategy": s.Strategy,
+		"yapr-selector": s.Name,
+		"yapr-service":  s.Service,
 	}
-	return endpoints[rand.IntN(len(endpoints))], nil
+	for k, v := range s.Headers {
+		headers[k] = v
+	}
+	return headers
 }
 
-func (s *Selector) roundRobinSelect(service *Service) (*types.Endpoint, error) {
+func (s *Selector) randomSelect(service *Service) (*types.Endpoint, map[string]string, error) {
 	endpoints := service.Endpoints()
 	if len(endpoints) == 0 {
-		return nil, ErrNoEndpointAvailable
+		return nil, nil, errcode.ErrNoEndpointAvailable
+	}
+	return endpoints[rand.IntN(len(endpoints))], s.baseHeaders(), nil
+}
+
+func (s *Selector) roundRobinSelect(service *Service) (*types.Endpoint, map[string]string, error) {
+	endpoints := service.Endpoints()
+	if len(endpoints) == 0 {
+		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
 	s.lastIdx = (s.lastIdx + 1) % uint32(len(endpoints))
-	return endpoints[s.lastIdx], nil
+	return endpoints[s.lastIdx], s.baseHeaders(), nil
 }
 
-func (s *Selector) weightedRandomSelect(service *Service) (*types.Endpoint, error) {
+func (s *Selector) weightedRandomSelect(service *Service) (*types.Endpoint, map[string]string, error) {
 	endpoints := service.Endpoints()
 	if len(endpoints) == 0 {
-		return nil, ErrNoEndpointAvailable
+		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
 	attributes := service.Attributes(s.Name)
 
@@ -87,16 +149,16 @@ func (s *Selector) weightedRandomSelect(service *Service) (*types.Endpoint, erro
 	for i, attr := range attributes {
 		totalWeight += attr.Weight
 		if r < totalWeight {
-			return endpoints[i], nil
+			return endpoints[i], s.baseHeaders(), nil
 		}
 	}
-	return nil, ErrNoEndpointAvailable
+	return nil, nil, errcode.ErrNoEndpointAvailable
 }
 
-func (s *Selector) weightedRoundRobinSelect(service *Service) (*types.Endpoint, error) {
+func (s *Selector) weightedRoundRobinSelect(service *Service) (*types.Endpoint, map[string]string, error) {
 	endpoints := service.Endpoints()
 	if len(endpoints) == 0 {
-		return nil, ErrNoEndpointAvailable
+		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
 	attributes := service.Attributes(s.Name)
 
@@ -105,21 +167,21 @@ func (s *Selector) weightedRoundRobinSelect(service *Service) (*types.Endpoint, 
 	for i, attr := range attributes {
 		total += attr.Weight
 		if s.lastIdx < total {
-			return endpoints[i], nil
+			return endpoints[i], s.baseHeaders(), nil
 		}
 	}
 	s.lastIdx = 0
 	if total == 0 {
-		return nil, ErrNoEndpointAvailable
+		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
-	return endpoints[0], nil
+	return endpoints[0], s.baseHeaders(), nil
 }
 
 // 实现上是选取最大权重（weight = C - cost）
-func (s *Selector) leastCostSelect(service *Service) (*types.Endpoint, error) {
+func (s *Selector) leastCostSelect(service *Service) (*types.Endpoint, map[string]string, error) {
 	endpoints := service.Endpoints()
 	if len(endpoints) == 0 {
-		return nil, ErrNoEndpointAvailable
+		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
 	attributes := service.Attributes(s.Name)
 
@@ -132,9 +194,9 @@ func (s *Selector) leastCostSelect(service *Service) (*types.Endpoint, error) {
 		}
 	}
 	if idx == -1 {
-		return nil, ErrNoEndpointAvailable
+		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
-	return endpoints[idx], nil
+	return endpoints[idx], s.baseHeaders(), nil
 }
 
 func JumpConsistentHash(key uint64, numBuckets int32) int32 {
@@ -162,71 +224,123 @@ func hashString(s string) uint64 {
 
 func (s *Selector) headerValue(target *types.MatchTarget) (string, error) {
 	if s.Key == "" {
-		return "", ErrNoKeyAvailable
+		return "", errcode.ErrNoKeyAvailable
 	}
 
 	md, exist := metadata.FromOutgoingContext(target.Ctx)
 	if !exist {
-		return "", ErrNoValueAvailable
+		return "", errcode.ErrNoValueAvailable
 	}
 	values := md.Get(s.Key)
 	if len(values) == 0 {
-		return "", ErrNoValueAvailable
+		return "", errcode.ErrNoValueAvailable
 	}
 	return values[0], nil
 }
 
-// TODO：新增或删除endpoint时，该如何处理？
-func (s *Selector) consistentHashSelect(service *Service, target *types.MatchTarget) (*types.Endpoint, error) {
+func (s *Selector) hashRingSelect(service *Service, target *types.MatchTarget) (*types.Endpoint, map[string]string, error) {
+	// TODO: 实现hash ring算法
+	panic("not implemented")
+}
+
+// TODO: 增或删除endpoint时，该如何处理？
+func (s *Selector) jumpConsistentHashSelect(service *Service, target *types.MatchTarget) (*types.Endpoint, map[string]string, error) {
 	if s.Key == "" {
-		return nil, ErrNoKeyAvailable
+		return nil, nil, errcode.ErrNoKeyAvailable
 	}
 
 	endpoints := service.Endpoints()
 	if len(endpoints) == 0 {
-		return nil, ErrNoEndpointAvailable
+		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
 
 	value, err := s.headerValue(target)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	hashed := hashString(value)
 	idx := JumpConsistentHash(hashed, int32(len(endpoints)))
-	return endpoints[idx], nil
+
+	headers := s.baseHeaders()
+	headers["yapr-header-value"] = value
+	return endpoints[idx], headers, nil
 }
 
-// TODO：新增或删除endpoint时，该如何处理？
-func (s *Selector) directSelect(service *Service, target *types.MatchTarget) (*types.Endpoint, error) {
+func (s *Selector) directSelect(service *Service, target *types.MatchTarget) (*types.Endpoint, map[string]string, error) {
 	if s.Key == "" {
-		return nil, ErrNoKeyAvailable
+		return nil, nil, errcode.ErrNoKeyAvailable
 	}
 
 	endpoints := service.EndpointsSet()
 	if len(endpoints) == 0 {
-		return nil, ErrNoEndpointAvailable
+		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
 
 	value, err := s.headerValue(target)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	if s.Buffer == nil {
-		return nil, ErrBufferNotFound
+	if s.Cache == nil {
+		return nil, nil, errcode.ErrBufferNotFound
 	}
 
-	endpoint, err := s.Buffer.Get(value)
+	endpoint, err := s.Cache.Get(value)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, redis.Nil) {
+		}
+		return nil, nil, err
 	}
 	if endpoint == nil {
-		return nil, ErrNoEndpointAvailable
+		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
 	// endpoint有可能已经被删除，需要检查
+	headers := s.baseHeaders()
+	headers["yapr-header-value"] = value
 	if _, ok := endpoints[*endpoint]; !ok {
-		return endpoint, ErrBadEndpoint
+		return endpoint, headers, errcode.ErrBadEndpoint
 	}
 	logger.Debugf("direct select endpoint %v by value %v", endpoint, value)
-	return endpoint, nil
+	return endpoint, headers, nil
+}
+
+func (s *Selector) selectByLua(service *Service, target *types.MatchTarget) (*types.Endpoint, map[string]string, error) {
+	luaState := lua.NewState()
+	defer luaState.Close()
+	err := luaState.DoFile(s.Script)
+	if err != nil {
+		return nil, nil, err
+	}
+	md, exist := metadata.FromOutgoingContext(target.Ctx)
+	if !exist {
+		return nil, nil, errcode.ErrNoValueAvailable
+	}
+	luaHeaders := luaState.NewTable()
+	for k, vs := range md {
+		luaHeaders.RawSetString(k, lua.LString(vs[0]))
+	}
+	endpoints := service.Endpoints()
+	// 创建lua数组
+	luaEndpoints := luaState.NewTable()
+	for i, endpoint := range endpoints {
+		luaEndpoints.Insert(i+1, lua.LString(endpoint.String()))
+	}
+	logger.Debugf("header x-uid: %v", luaHeaders.RawGetString("x-uid"))
+	err = luaState.CallByParam(lua.P{
+		Fn:   luaState.GetGlobal("select"),
+		NRet: 1,
+	}, luaHeaders, luaEndpoints)
+	if err != nil {
+		return nil, nil, err
+	}
+	idx := luaState.ToInt(-1)
+	if idx == -1 {
+		return nil, nil, errcode.ErrNoEndpointAvailable
+	}
+	if idx < 0 || idx >= len(endpoints) {
+		return nil, nil, errcode.ErrLuaIndexOutOfRange
+	}
+	headers := s.baseHeaders()
+	//TODO: 从lua中获取header
+	return endpoints[idx], headers, nil
 }

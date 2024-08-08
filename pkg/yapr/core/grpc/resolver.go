@@ -7,7 +7,6 @@ import (
 	"google.golang.org/grpc/attributes"
 	"google.golang.org/grpc/resolver"
 	"noy/router/pkg/yapr/core"
-	"noy/router/pkg/yapr/core/store"
 	"noy/router/pkg/yapr/logger"
 	"noy/router/pkg/yapr/metrics"
 	"strconv"
@@ -87,7 +86,7 @@ func (y *yaprResolver) watcher() {
 		case <-ticker.C:
 		}
 
-		router, err := store.GetRouter(y.routerName)
+		router, err := core.GetRouter(y.routerName)
 		if err == nil && router != nil {
 			serviceConfigJSON := fmt.Sprintf(`{"loadBalancingConfig":[{"%s":{}}]}`, "yapr")
 			config := y.cc.ParseServiceConfig(serviceConfigJSON)
@@ -112,14 +111,14 @@ func (y *yaprResolver) Endpoints(router *core.Router) []resolver.Endpoint {
 	visited := make(map[string]struct{})
 	var endpoints []resolver.Endpoint
 	for _, selector := range router.Selectors() {
-		service, ok := router.ServiceByName[selector.Service]
-		if !ok {
+		service, err := core.GetService(selector.Service)
+		if err != nil {
 			logger.Warnf("service %s not found", selector.Service)
 			continue
 		}
 		var addrs []resolver.Address
 		for endpoint, _ := range service.AttrMap {
-			addr := fmt.Sprintf("%s:%d", endpoint.IP, selector.Port)
+			addr := fmt.Sprintf("%s:%d", endpoint.String(), selector.Port)
 			// 除去重复的地址
 			if _, ok := visited[addr]; ok {
 				continue

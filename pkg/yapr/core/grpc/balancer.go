@@ -8,6 +8,7 @@ import (
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/resolver"
 	"noy/router/pkg/yapr/core"
+	"noy/router/pkg/yapr/core/errcode"
 	"noy/router/pkg/yapr/logger"
 )
 
@@ -93,9 +94,9 @@ func (y *yaprBalancer) UpdateClientConnState(state balancer.ClientConnState) err
 
 	newSubConns := make(map[string]balancer.SubConn)
 	for _, endpoint := range state.ResolverState.Endpoints {
-		service := endpoint.Attributes.Value("service").(*core.Service)
+		//service := endpoint.Attributes.Value("service").(*core.Service)
 		for _, addr := range endpoint.Addresses {
-			key := service.Name + ":" + addr.Addr
+			key := addr.Addr
 			// 跳过已经存在的连接
 			if subConn, ok := y.subConns[key]; ok {
 				newSubConns[key] = subConn
@@ -129,7 +130,7 @@ func (y *yaprBalancer) UpdateClientConnState(state balancer.ClientConnState) err
 	}
 	y.subConns = newSubConns
 	if len(y.subConns) == 0 {
-		y.ResolverError(core.ErrNoEndpointAvailable)
+		y.ResolverError(errcode.ErrNoEndpointAvailable)
 		return balancer.ErrBadResolverState
 	}
 

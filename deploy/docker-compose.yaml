@@ -83,6 +83,7 @@ services:
       - 19080:9090
     volumes:
       - './yapr.yaml:/app/yapr.yaml'
+      - './shard.lua:/app/shard.lua'
     command: ./yapr_echo_client --name=cli1 --addr=client-1:9090
     depends_on:
       - etcd
@@ -98,6 +99,7 @@ services:
       - 19081:9090
     volumes:
       - './yapr.yaml:/app/yapr.yaml'
+      - './shard.lua:/app/shard.lua'
     command: ./yapr_echo_client --name=cli2 --addr=client-2:9090
     depends_on:
       - etcd

@@ -1,6 +1,8 @@
 package types
 
-import "context"
+import (
+	"context"
+)
 
 type MatchTarget struct {
 	URI  string          // 方法名
@@ -8,16 +10,16 @@ type MatchTarget struct {
 	Ctx  context.Context // headers
 }
 
-type Strategy string
-
 const (
-	StrategyRandom             = Strategy("random")               // 随机
-	StrategyRoundRobin         = Strategy("round_robin")          // 轮询
-	StrategyWeightedRandom     = Strategy("weighted_random")      // 加权随机
-	StrategyWeightedRoundRobin = Strategy("weighted_round_robin") // 加权轮询
-	StrategyLeastCost          = Strategy("least_cost")           // 最少开销，开销越高权重越低
-	StrategyConsistentHash     = Strategy("consistent_hash")      // 一致性哈希
-	StrategyDirect             = Strategy("direct")               // 指定目标路由
+	StrategyRandom             = "random"               // 随机
+	StrategyRoundRobin         = "round_robin"          // 轮询
+	StrategyWeightedRandom     = "weighted_random"      // 加权随机
+	StrategyWeightedRoundRobin = "weighted_round_robin" // 加权轮询
+	StrategyLeastCost          = "least_cost"           // 最少开销，开销越高权重越低
+	StrategyHashRing           = "hash_ring"            // 哈希环法
+	StrategyJumpConsistentHash = "jump"                 // 跳跃一致性哈希
+	StrategyDirect             = "direct"               // 指定目标路由
+	StrategyCustom             = "custom"               // 自定义
 )
 
 type Endpoint struct {
@@ -25,14 +27,27 @@ type Endpoint struct {
 	IP string `yaml:"ip" json:"ip,omitempty"` // ip
 }
 
+func (e *Endpoint) String() string {
+	return e.IP
+}
+
+func EndpointFromString(s string) *Endpoint {
+	return &Endpoint{IP: s}
+}
+
+func (e *Endpoint) Equal(e2 *Endpoint) bool {
+	return e.IP == e2.IP
+}
+
 type Attribute struct {
 	Weight   uint32 `yaml:"weight" json:"weight,omitempty"`     // 权重，默认为1
 	Deadline int64  `yaml:"deadline" json:"deadline,omitempty"` // 截止时间，单位毫秒，0表示永久，-1表示已过期仅在
 }
 
-// DynamicRouteBuffer 动态键值路由缓存
-type DynamicRouteBuffer interface {
+// DirectCache 动态键值路由缓存
+type DirectCache interface {
 	Get(headerValue string) (*Endpoint, error)
+	Refresh(headerValue string)
 	Clear()
 }
 
@@ -59,3 +74,39 @@ const (
 	HandlerPass  = ErrorHandler("pass")
 	HandlerBlock = ErrorHandler("block")
 )
+
+type Matcher struct {
+	URI     string            `yaml:"uri" json:"uri,omitempty"`         // #方法名regex
+	Port    uint32            `yaml:"port" json:"port,omitempty"`       // #Router 端口
+	Headers map[string]string `yaml:"headers" json:"headers,omitempty"` // #对header的filters，对于所有header key都要满足指定regex
+}
+
+// Rule 代表了一条路由规则，包含了匹配规则和目的地服务网格
+type Rule struct {
+	Matchers     []*Matcher                  `yaml:"matchers" json:"matchers,omitempty"`           // #匹配规则，满足任意一个规则则匹配成功
+	Selector     string                      `yaml:"selector" json:"selector,omitempty"`           // #路由目的地选择器
+	ErrorHandler map[RuleError]*ErrorHandler `yaml:"error_handler" json:"error_handler,omitempty"` // #错误处理
+}
+
+// Router 代表了一个服务网格的所有路由规则
+type Router struct {
+	Name   string  `yaml:"name" json:"name,omitempty"`     // #服务网格名
+	Rules  []*Rule `yaml:"rules" json:"rules,omitempty"`   // #路由规则，按优先级从高到低排序
+	Direct string  `yaml:"direct" json:"direct,omitempty"` // #直连，填写后将忽略路由选择器 TODO: Debug
+}
+
+// Selector 全名是Endpoint Selector，指定了目标service和选择策略【以json格式存etcd】
+type Selector struct {
+	Name      string            `yaml:"name" json:"name,omitempty"`             // #唯一名称
+	Service   string            `yaml:"service" json:"service,omitempty"`       // #目标服务
+	Port      uint32            `yaml:"port" json:"port,omitempty"`             // #目标端口
+	Headers   map[string]string `yaml:"headers" json:"headers,omitempty"`       // #路由成功后为请求添加的headers
+	Strategy  string            `yaml:"strategy" json:"strategy,omitempty"`     // #路由策略，默认为random
+	Key       string            `yaml:"key" json:"key,omitempty"`               // #用于从header中获取路由用的value，仅在一致性哈希和指定目标策略下有效
+	CacheType BufferType        `yaml:"cache_type" json:"cache_type,omitempty"` // #动态键值路由缓存类型，仅在指定目标策略下有效，默认为none
+	CacheSize uint32            `yaml:"cache_size" json:"cache_size,omitempty"` // #动态键值路由缓存大小，仅在指定目标策略下有效，默认为4096
+	Script    string            `yaml:"script" json:"script,omitempty"`         // #自定义lua脚本，仅在自定义策略下有效
+	//DirectMap    map[string]Endpoint `yaml:"-" json:"direct_map,omitempty"`      // 指定目标路由，从redis现存现取，表名$SelectorName，键值对为header value -> Endpoint
+
+	Cache DirectCache `yaml:"-" json:"-"` // 动态路由缓存
+}

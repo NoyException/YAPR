@@ -7,9 +7,9 @@ import (
 	"github.com/redis/go-redis/v9"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
-	"noy/router/pkg/yapr/core"
-	"noy/router/pkg/yapr/core/buffer"
+	"noy/router/pkg/yapr/core/cache"
 	"noy/router/pkg/yapr/core/config"
+	"noy/router/pkg/yapr/core/errcode"
 	"noy/router/pkg/yapr/core/store"
 	"noy/router/pkg/yapr/core/store/etcd"
 	"noy/router/pkg/yapr/core/types"
@@ -128,7 +128,7 @@ func (s *Impl) LoadConfig(config *config.YaprConfig) error {
 	return err
 }
 
-func (s *Impl) GetRouter(name string) (*core.Router, error) {
+func (s *Impl) GetRouter(name string) (*types.Router, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	response, err := s.etcdClient.Get(ctx, "rtr/"+name)
@@ -136,66 +136,56 @@ func (s *Impl) GetRouter(name string) (*core.Router, error) {
 		return nil, err
 	}
 	if len(response.Kvs) == 0 {
-		return nil, core.ErrRouterNotFound
+		return nil, errcode.ErrRouterNotFound
 	}
 	bytes := response.Kvs[0].Value
-	var router core.Router
+	var router types.Router
 	err = json.Unmarshal(bytes, &router)
 	if err != nil {
 		return nil, err
 	}
-	selectors, err := s.GetSelectors()
-	if err != nil {
-		return nil, err
-	}
-	router.SelectorByName = selectors
-	services, err := s.GetServices()
-	if err != nil {
-		return nil, err
-	}
-	router.ServiceByName = services
 	return &router, nil
 }
 
-func (s *Impl) GetSelectors() (map[string]*core.Selector, error) {
+func (s *Impl) GetSelectors() (map[string]*types.Selector, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	response, err := s.etcdClient.Get(ctx, "slt/", clientv3.WithPrefix())
 	if err != nil {
 		return nil, err
 	}
-	selectors := make(map[string]*core.Selector)
+	selectors := make(map[string]*types.Selector)
 	for _, kv := range response.Kvs {
 		name := strings.TrimPrefix(string(kv.Key), "slt/")
 		bytes := kv.Value
-		var selector core.Selector
+		var selector types.Selector
 		err = json.Unmarshal(bytes, &selector)
 		if err != nil {
 			return nil, err
 		}
 
-		size := selector.BufferSize
+		size := selector.CacheSize
 		if size == 0 {
 			size = 4096
 		}
-		switch selector.BufferType {
+		switch selector.CacheType {
 		case types.BufferTypeLRU:
-			selector.Buffer = buffer.NewLRUBuffer(name, size)
+			selector.Cache = cache.NewLRUBuffer(name, size)
 		case types.BufferTypeNone:
 			fallthrough
 		default:
-			selector.Buffer = buffer.NewDefaultBuffer(name)
+			selector.Cache = cache.NewDefaultBuffer(name)
 		}
 		selectors[name] = &selector
 	}
 	return selectors, nil
 }
 
-func (s *Impl) GetServices() (map[string]*core.Service, error) {
+func (s *Impl) GetServices() (map[string]*types.Service, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	services := make(map[string]*core.Service)
+	services := make(map[string]*types.Service)
 	// 监听服务的节点变化
 	s.RegisterServiceChangeListener(func(service string, isPut bool, pod string, endpoints []*types.Endpoint) {
 		svc := services[service]
@@ -212,7 +202,7 @@ func (s *Impl) GetServices() (map[string]*core.Service, error) {
 				logger.Debugf("delete endpoint: %v in service %v", endpoint, service)
 				delete(svc.AttrMap, *endpoint)
 				for ep, _ := range svc.AttrMap {
-					if ep.IP == endpoint.IP {
+					if ep.Equal(endpoint) {
 						logger.Errorf("failed to delete endpoint: %v in service %v", endpoint, service)
 					}
 				}
@@ -237,7 +227,7 @@ func (s *Impl) GetServices() (map[string]*core.Service, error) {
 		service, ok := services[name]
 		// 如果服务不存在，则创建一个新的服务
 		if !ok {
-			service = core.NewService(name)
+			service = types.NewService(name)
 			services[name] = service
 			// 监听服务的属性变化
 			s.RegisterAttributeChangeListener(func(endpoint *types.Endpoint, selector string, attribute *types.Attribute) {
@@ -261,10 +251,7 @@ func (s *Impl) GetServices() (map[string]*core.Service, error) {
 					continue
 				}
 				selector := splits[1]
-				ip := splits[2]
-				endpoint := &types.Endpoint{
-					IP: ip,
-				}
+				endpoint := types.EndpointFromString(splits[2])
 				service.SetAttribute(endpoint, selector, &attr)
 			}
 		}
@@ -328,7 +315,7 @@ func (s *Impl) RegisterServiceChangeListener(listener func(service string, isPut
 				service := splits[1]
 				id := splits[2]
 
-				if event.Type == clientv3.EventTypeDelete {
+				if event.Type == clientv3.EventTypeDelete { // TODO: 区分是超时还是注销
 					listener(service, false, id, nil)
 					continue
 				}
@@ -346,7 +333,7 @@ func (s *Impl) RegisterServiceChangeListener(listener func(service string, isPut
 }
 
 func (s *Impl) SetEndpointAttribute(endpoint *types.Endpoint, selector string, attribute *types.Attribute) error {
-	key := "attr/" + selector + "/" + endpoint.IP
+	key := "attr/" + selector + "/" + endpoint.String()
 	bytes, err := json.Marshal(attribute)
 	if err != nil {
 		return err
@@ -374,9 +361,7 @@ func (s *Impl) RegisterAttributeChangeListener(listener func(endpoint *types.End
 					continue
 				}
 				selector := splits[1]
-				endpoint := &types.Endpoint{
-					IP: splits[2],
-				}
+				endpoint := types.EndpointFromString(splits[2])
 				listener(endpoint, selector, attribute)
 			}
 		}
@@ -407,13 +392,12 @@ local ddlTable = "_ddl_" .. selectorName
 
 -- 检查键值对是否存在且未过期
 local existing = redis.call("HGET", endpointTable, headerValue)
-local existingDDL = redis.call("HGET", ddlTable, headerValue)
-
-if existing ~= nil and existingDDL ~= nil then
-    local ddl = tonumber(existingDDL)
-    if currentTimeMillis >= ddl and ddl > 0 then
-		existing = nil
-    end
+local existingDDL = tonumber(redis.call("HGET", ddlTable, headerValue))
+if existingDDL == nil then
+	existingDDL = 1
+end
+if existing ~= nil and existingDDL > 0 and currentTimeMillis >= existingDDL then
+	existing = nil
 end
 
 if existing ~= nil and ignoreExisting == "0" then
@@ -436,15 +420,17 @@ return {1, existing} -- 键值对不存在/已过期/忽略已存在，插入成
 	}
 
 	// 执行 Lua 脚本
-	res, err := s.redisClient.EvalSha(context.Background(), s.setCustomRouteSha, []string{selectorName, headerValue}, endpoint.IP, timeout, ignoreExisting).Result()
+	res, err := s.redisClient.EvalSha(context.Background(), s.setCustomRouteSha, []string{selectorName, headerValue}, endpoint.String(), timeout, ignoreExisting).Result()
 	if err != nil {
 		return false, nil, err
 	}
 	resArr := res.([]interface{})
 	inserted := resArr[0].(int64) == 1
 	var existing *types.Endpoint
-	if ip, ok := resArr[1].(string); ok {
-		existing = &types.Endpoint{IP: ip}
+	if len(resArr) < 2 {
+		existing = nil
+	} else if ep, ok := resArr[1].(string); ok {
+		existing = types.EndpointFromString(ep)
 	}
 	return inserted, existing, nil
 }
@@ -455,11 +441,9 @@ func (s *Impl) GetCustomRoute(selectorName, headerValue string) (*types.Endpoint
 		return nil, err
 	}
 	if endpoint == "" {
-		return nil, core.ErrNoCustomRoute
+		return nil, errcode.ErrNoCustomRoute
 	}
-	return &types.Endpoint{
-		IP: endpoint,
-	}, nil
+	return types.EndpointFromString(endpoint), nil
 }
 
 func (s *Impl) RemoveCustomRoute(selectorName, headerValue string) error {
@@ -467,9 +451,40 @@ func (s *Impl) RemoveCustomRoute(selectorName, headerValue string) error {
 	return err
 }
 
-func (s *Impl) RegisterTransferListener(listener func(selectorName string, headerValue string, from *types.Endpoint, to *types.Endpoint)) {
-	// 使用etcd来实现监听
+func (s *Impl) RegisterMigrationListener(listener func(selectorName, headerValue string, from, to *types.Endpoint)) store.CancelFunc {
+	cancel := make(chan struct{})
+	cancelFunc := func() {
+		close(cancel)
+	}
+	go func() {
+		pubsub := s.redisClient.Subscribe(context.Background(), "_migration")
+		defer func() {
+			_ = pubsub.Close()
+		}()
+		for {
+			select {
+			case <-cancel:
+				return
+			case msg := <-pubsub.Channel():
+				splits := strings.Split(msg.Payload, " ")
+				if len(splits) != 4 {
+					logger.Warnf("invalid message: %s", msg.Payload)
+					continue
+				}
+				selectorName := splits[0]
+				headerValue := splits[1]
+				from := types.EndpointFromString(splits[2])
+				to := types.EndpointFromString(splits[3])
+				listener(selectorName, headerValue, from, to)
+			}
+		}
+	}()
+	return cancelFunc
+}
 
+func (s *Impl) NotifyMigration(selectorName, headerValue string, from, to *types.Endpoint) error {
+	_, err := s.redisClient.Publish(context.Background(), "_migration", selectorName+" "+headerValue+" "+from.String()+" "+to.String()).Result()
+	return err
 }
 
 func (s *Impl) Close() {

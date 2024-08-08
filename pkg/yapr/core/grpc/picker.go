@@ -2,6 +2,7 @@ package yaprgrpc
 
 import (
 	"google.golang.org/grpc/balancer"
+	"google.golang.org/grpc/metadata"
 	"noy/router/pkg/yapr/core"
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
@@ -28,11 +29,11 @@ func (y *yaprPicker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 		URI:  info.FullMethodName,
 		Ctx:  info.Ctx,
 	}
-	service, endpoint, port, meta, err := y.router.Route(mt)
+	_, endpoint, port, meta, err := y.router.Route(mt)
 	if err != nil {
 		return balancer.PickResult{}, err
 	}
-	key := service + ":" + endpoint.IP + ":" + strconv.FormatUint(uint64(port), 10)
+	key := endpoint.String() + ":" + strconv.FormatUint(uint64(port), 10)
 	logger.Debugf("select %v", key)
 	subConn, ok := y.subConns[key]
 	if !ok {
@@ -41,6 +42,6 @@ func (y *yaprPicker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 	}
 	return balancer.PickResult{
 		SubConn:  subConn,
-		Metadata: meta,
+		Metadata: metadata.New(meta),
 	}, nil
 }

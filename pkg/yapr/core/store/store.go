@@ -1,17 +1,17 @@
 package store
 
 import (
-	"noy/router/pkg/yapr/core"
 	"noy/router/pkg/yapr/core/config"
 	"noy/router/pkg/yapr/core/types"
-	"noy/router/pkg/yapr/logger"
 )
+
+type CancelFunc func()
 
 type Store interface {
 	LoadConfig(config *config.YaprConfig) error
-	GetRouter(name string) (*core.Router, error)
-	//GetSelectors() (map[string]*core.Selector, error)
-	//GetServices() (map[string]*core.Service, error)
+	GetRouter(name string) (*types.Router, error)
+	GetSelectors() (map[string]*types.Selector, error)
+	GetServices() (map[string]*types.Service, error)
 
 	RegisterService(service string, endpoints []*types.Endpoint) error
 	//RegisterServiceChangeListener(listener func(service string, isPut bool, pod string, endpoints []*types.Endpoint))
@@ -22,12 +22,18 @@ type Store interface {
 	GetCustomRoute(selectorName, headerValue string) (*types.Endpoint, error)
 	RemoveCustomRoute(selectorName, headerValue string) error
 
+	RegisterMigrationListener(listener func(selectorName, headerValue string, from, to *types.Endpoint)) CancelFunc
+	NotifyMigration(selectorName, headerValue string, from, to *types.Endpoint) error
+
 	Close()
 }
 
 var instance Store
 
 func MustStore() Store {
+	if instance == nil {
+		panic("store not registered")
+	}
 	return instance
 }
 
@@ -36,20 +42,4 @@ func RegisterStore(store Store) {
 		panic("store already registered")
 	}
 	instance = store
-}
-
-var routers = make(map[string]*core.Router)
-
-func GetRouter(name string) (*core.Router, error) {
-	if router, ok := routers[name]; ok {
-		return router, nil
-	}
-	s := instance
-	router, err := s.GetRouter(name)
-	if err != nil {
-		logger.Errorf("router %s not found", name)
-		return nil, err
-	}
-	routers[name] = router
-	return router, nil
 }
