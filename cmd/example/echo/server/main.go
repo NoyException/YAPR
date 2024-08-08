@@ -13,11 +13,8 @@ import (
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
 	"noy/router/pkg/yapr/metrics"
-	"os"
-	"os/signal"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -104,21 +101,21 @@ func main() {
 		}
 	}()
 
-	// 捕获 SIGTERM 信号
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
-
-	go func() {
-		<-sigChan
-		logger.Infof("Received shutdown signal, performing cleanup...")
-		// 执行收尾工作
-		err := sdk.UnregisterService("echosvr")
-		if err != nil {
-			logger.Errorf("unregister service error: %v", err)
-		}
-		s.Stop()
-		os.Exit(0)
-	}()
+	//// 捕获 SIGTERM 信号
+	//sigChan := make(chan os.Signal, 1)
+	//signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+	//
+	//go func() {
+	//	<-sigChan
+	//	logger.Infof("Received shutdown signal, performing cleanup...")
+	//	// 执行收尾工作
+	//	err := sdk.UnregisterService("echosvr")
+	//	if err != nil {
+	//		logger.Errorf("unregister service error: %v", err)
+	//	}
+	//	s.Stop()
+	//	os.Exit(0)
+	//}()
 
 	log.Printf("server listening at %v", l.Addr())
 	if err := s.Serve(l); err != nil {

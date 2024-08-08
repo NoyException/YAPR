@@ -18,10 +18,11 @@ const (
 	StrategyWeightedRandom     = "weighted_random"      // 加权随机
 	StrategyWeightedRoundRobin = "weighted_round_robin" // 加权轮询
 	StrategyLeastCost          = "least_cost"           // 最少开销，开销越高权重越低
+	StrategyPassThrough        = "pass_through"         // 透传
 	StrategyHashRing           = "hash_ring"            // 哈希环法
-	StrategyJumpConsistentHash = "jump"                 // 跳跃一致性哈希
-	StrategyDirect             = "direct"               // 指定目标路由
-	StrategyCustom             = "custom"               // 自定义
+	//StrategyJumpConsistentHash = "jump"                 // 跳跃一致性哈希
+	StrategyDirect    = "direct"     // 指定目标路由
+	StrategyCustomLua = "custom_lua" // 自定义
 )
 
 type Endpoint struct {

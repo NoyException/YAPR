@@ -96,4 +96,5 @@ var (
 	ErrMetadataNotFound    = New(1018, "metadata not found")
 	ErrInvalidMetadata     = New(1019, "invalid metadata")
 	ErrMaxRetries          = New(1020, "max retries")
+	ErrUnknownStrategy     = New(1021, "unknown strategy")
 )

@@ -99,10 +99,16 @@ func (y *YaprSDK) SetCustomRoute(selectorName, headerValue string, endpoint *typ
 	return success, old, nil
 }
 
+// GetEndpoints 获取路由配置，用于自定义路由
 func (y *YaprSDK) GetEndpoints(selectorName string) map[types.Endpoint]*types.Attribute {
 	selector, err := core.GetSelector(selectorName)
 	if err != nil {
 		return nil
 	}
 	return selector.Endpoints()
+}
+
+// RegisterRoutingStrategy 注册自定义路由策略
+func (y *YaprSDK) RegisterRoutingStrategy(name string, strategyBuilder core.StrategyBuilder) {
+	core.RegisterStrategyBuilder(name, strategyBuilder)
 }
