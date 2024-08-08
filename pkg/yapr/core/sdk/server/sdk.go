@@ -39,7 +39,7 @@ func Init(configPath, pod string) *YaprSDK {
 	if err != nil {
 		panic(err)
 	}
-	st, err := impl.NewImpl(cfg, pod)
+	st, err := store_impl.NewImpl(cfg, pod)
 	store.RegisterStore(st)
 	if err != nil {
 		panic(err)
@@ -215,7 +215,7 @@ func (y *YaprSDK) GetEndpoints(selectorName string) map[types.Endpoint]*types.At
 	if err != nil {
 		return nil
 	}
-	return selector.Endpoints()
+	return selector.EndpointsWithAttribute()
 }
 
 func (y *YaprSDK) NewEndpoint(ip string) *types.Endpoint {

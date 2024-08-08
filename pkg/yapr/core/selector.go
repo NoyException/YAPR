@@ -1,9 +1,9 @@
 package core
 
 import (
-	"google.golang.org/grpc/metadata"
 	"noy/router/pkg/yapr/core/errcode"
 	"noy/router/pkg/yapr/core/store"
+	"noy/router/pkg/yapr/core/strategy"
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
 	"noy/router/pkg/yapr/metrics"
@@ -14,8 +14,8 @@ import (
 type Selector struct {
 	*types.Selector
 
-	strategy Strategy
-	lastIdx  uint32 // 上次选择的endpoint索引
+	lastVersion uint64
+	strategy    strategy.Strategy
 }
 
 var selectors map[string]*Selector
@@ -38,25 +38,27 @@ func GetSelector(name string) (*Selector, error) {
 	return nil, errcode.ErrSelectorNotFound
 }
 
-func (s *Selector) RefreshCache(headerValue string) {
-	if s.Cache == nil {
-		return
-	}
-	s.Cache.Refresh(headerValue)
-}
-
-func (s *Selector) Endpoints() map[types.Endpoint]*types.Attribute {
-	result := make(map[types.Endpoint]*types.Attribute)
+func (s *Selector) MustService() *Service {
 	service, err := GetService(s.Service)
 	if err != nil {
-		logger.Errorf("get service %s failed: %v", s.Service, err)
-		return result
+		panic(err)
 	}
-	endpoints := service.Endpoints()
-	if len(endpoints) == 0 {
-		return result
+	return service
+}
+
+func (s *Selector) NotifyRetry(headerValue string) {
+	if ss, ok := s.strategy.(strategy.StatefulStrategy); ok {
+		ss.NotifyRetry(headerValue)
 	}
-	attributes := service.AttributesInSelector(s.Name)
+}
+
+func (s *Selector) Endpoints() []*types.Endpoint {
+	return s.MustService().Endpoints()
+}
+
+func (s *Selector) EndpointsWithAttribute() map[types.Endpoint]*types.Attribute {
+	result := make(map[types.Endpoint]*types.Attribute)
+	endpoints, attributes := s.MustService().AttributesInSelector(s.Name)
 	for i := 0; i < len(endpoints); i++ {
 		result[*endpoints[i]] = attributes[i]
 	}
@@ -69,12 +71,6 @@ func (s *Selector) Select(target *types.MatchTarget) (endpoint *types.Endpoint, 
 		metrics.ObserveSelectorDuration(s.Strategy, time.Since(start).Seconds())
 	}()
 
-	service, err := GetService(s.Service)
-	if err != nil {
-		logger.Errorf("get service %s failed: %v", s.Service, err)
-		return nil, nil, err
-	}
-
 	if s.strategy == nil {
 		s.strategy, err = GetStrategy(s)
 		if err != nil {
@@ -82,15 +78,27 @@ func (s *Selector) Select(target *types.MatchTarget) (endpoint *types.Endpoint, 
 			return nil, nil, err
 		}
 	}
-	endpoint, headers, err = s.strategy.Select(service, target)
 
-	if endpoint != nil && err == nil && !service.AttrMap[*endpoint].Available {
+	service := s.MustService()
+	if s.lastVersion < service.Version() {
+		s.strategy.Update(s.EndpointsWithAttribute())
+		s.lastVersion = service.Version()
+	}
+
+	headers = s.baseHeaders()
+	endpoint, appendHeaders, err := s.strategy.Select(target)
+	if endpoint != nil && err == nil && !s.MustService().AttrMap[*endpoint].Available {
 		err = errcode.ErrEndpointUnavailable
+	}
+	if appendHeaders != nil {
+		for k, v := range appendHeaders {
+			headers[k] = v
+		}
 	}
 	return
 }
 
-func (s *Selector) BaseHeaders() map[string]string {
+func (s *Selector) baseHeaders() map[string]string {
 	headers := map[string]string{
 		"yapr-strategy": s.Strategy,
 		"yapr-selector": s.Name,
@@ -100,20 +108,4 @@ func (s *Selector) BaseHeaders() map[string]string {
 		headers[k] = v
 	}
 	return headers
-}
-
-func (s *Selector) HeaderValue(target *types.MatchTarget) (string, error) {
-	if s.Key == "" {
-		return "", errcode.ErrNoKeyAvailable
-	}
-
-	md, exist := metadata.FromOutgoingContext(target.Ctx)
-	if !exist {
-		return "", errcode.ErrNoValueAvailable
-	}
-	values := md.Get(s.Key)
-	if len(values) == 0 {
-		return "", errcode.ErrNoValueAvailable
-	}
-	return values[0], nil
 }

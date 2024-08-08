@@ -1,5 +1,7 @@
 package types
 
+import "sync"
+
 type Service struct {
 	Name           string                   `yaml:"name" json:"name,omitempty"`          // #唯一名称
 	AttrMap        map[Endpoint]*Attributes `yaml:"-" json:"attr_map,omitempty"`         // *每个endpoint和他的属性
@@ -10,6 +12,9 @@ type Service struct {
 	endpointsSet map[Endpoint]struct{} // 所有的endpoints
 	attributes   []*Attributes         // 所有的属性，idx和endpoints对应
 
+	mu      sync.RWMutex
+	version uint64 // 版本号
+
 	UpdateNTF chan struct{} // *Service更新通知
 }
 
@@ -18,6 +23,8 @@ func NewService(name string) *Service {
 		Name:           name,
 		AttrMap:        make(map[Endpoint]*Attributes),
 		EndpointsByPod: make(map[string][]*Endpoint),
+
+		mu: sync.RWMutex{},
 
 		UpdateNTF: make(chan struct{}),
 	}
@@ -28,6 +35,12 @@ func (s *Service) SetDirty() {
 }
 
 func (s *Service) update() {
+	if !s.dirty {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	endpoints := make([]*Endpoint, 0)
 	endpointsSet := make(map[Endpoint]struct{})
 	attributes := make([]*Attributes, 0)
@@ -40,6 +53,7 @@ func (s *Service) update() {
 	s.endpointsSet = endpointsSet
 	s.attributes = attributes
 	s.dirty = false
+	s.version++
 
 	ntf := s.UpdateNTF
 	s.UpdateNTF = make(chan struct{})
@@ -67,10 +81,13 @@ func NewDefaultAttr() *Attribute {
 	}
 }
 
-func (s *Service) AttributesInSelector(selector string) []*Attribute {
+func (s *Service) AttributesInSelector(selector string) ([]*Endpoint, []*Attribute) {
 	if s.dirty {
 		s.update()
 	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	attrs := make([]*Attribute, 0)
 	for _, attrMap := range s.attributes {
 		if attr, ok := attrMap.InSelector[selector]; ok {
@@ -81,11 +98,14 @@ func (s *Service) AttributesInSelector(selector string) []*Attribute {
 			attrs = append(attrs, attr)
 		}
 	}
-	return attrs
+	return s.endpoints, attrs
 }
 
 // SetAttribute 设置endpoint的属性，需要调用方保证endpoint已经存在才能调用
 func (s *Service) SetAttribute(endpoint *Endpoint, selector string, attr *Attribute) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	m, ok := s.AttrMap[*endpoint]
 	if !ok {
 		m = &Attributes{
@@ -96,4 +116,8 @@ func (s *Service) SetAttribute(endpoint *Endpoint, selector string, attr *Attrib
 	}
 	m.InSelector[selector] = attr
 	s.SetDirty()
+}
+
+func (s *Service) Version() uint64 {
+	return s.version
 }

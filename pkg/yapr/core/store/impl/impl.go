@@ -1,4 +1,4 @@
-package impl
+package store_impl
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 	"github.com/redis/go-redis/v9"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
-	"noy/router/pkg/yapr/core/cache"
 	"noy/router/pkg/yapr/core/config"
 	"noy/router/pkg/yapr/core/errcode"
 	"noy/router/pkg/yapr/core/store"
@@ -170,18 +169,6 @@ func (s *Impl) GetSelectors() (map[string]*types.Selector, error) {
 			return nil, err
 		}
 
-		size := selector.CacheSize
-		if size == 0 {
-			size = 4096
-		}
-		switch selector.CacheType {
-		case types.BufferTypeLRU:
-			selector.Cache = cache.NewLRUBuffer(name, size)
-		case types.BufferTypeNone:
-			fallthrough
-		default:
-			selector.Cache = cache.NewDefaultBuffer(name)
-		}
 		selectors[name] = &selector
 	}
 	return selectors, nil

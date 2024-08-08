@@ -87,7 +87,7 @@ var (
 	ErrNoCustomRoute       = New(1009, "no custom route")
 	ErrNoKeyAvailable      = New(1010, "no key available (for stateful routing)")
 	ErrNoValueAvailable    = New(1011, "no value available (for stateful routing)")
-	ErrBufferNotFound      = New(1012, "buffer not found")
+	ErrCacheNotFound       = New(1012, "cache not found")
 	ErrBadDirectSelect     = New(1013, "bad direct select")
 	ErrLuaScriptNotFound   = New(1014, "lua script not found")
 	ErrLuaIndexOutOfRange  = New(1015, "lua index out of range")

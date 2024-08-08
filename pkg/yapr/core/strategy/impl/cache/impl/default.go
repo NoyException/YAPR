@@ -1,7 +1,8 @@
-package cache
+package cache_impl
 
 import (
 	"noy/router/pkg/yapr/core/store"
+	"noy/router/pkg/yapr/core/strategy/impl/cache"
 	"noy/router/pkg/yapr/core/types"
 )
 
@@ -9,7 +10,7 @@ type DefaultCache struct {
 	selectorName string
 }
 
-var _ types.DirectCache = (*DefaultCache)(nil)
+var _ cache.DirectCache = (*DefaultCache)(nil)
 
 func NewDefaultBuffer(selectorName string) *DefaultCache {
 	return &DefaultCache{selectorName: selectorName}

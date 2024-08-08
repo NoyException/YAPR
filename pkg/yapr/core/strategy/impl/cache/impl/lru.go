@@ -1,7 +1,8 @@
-package cache
+package cache_impl
 
 import (
 	"noy/router/pkg/yapr/core/store"
+	"noy/router/pkg/yapr/core/strategy/impl/cache"
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
 	"sync"
@@ -24,7 +25,7 @@ type LRUCache struct {
 	mu sync.Mutex
 }
 
-var _ types.DirectCache = (*LRUCache)(nil)
+var _ cache.DirectCache = (*LRUCache)(nil)
 
 func NewLRUBuffer(selectorName string, capacity uint32) *LRUCache {
 	if capacity <= 0 {

@@ -10,6 +10,8 @@ import (
 	_ "noy/router/pkg/yapr/core/grpc"
 	"noy/router/pkg/yapr/core/store"
 	"noy/router/pkg/yapr/core/store/impl"
+	"noy/router/pkg/yapr/core/strategy"
+	"noy/router/pkg/yapr/core/strategy/impl"
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
 )
@@ -30,11 +32,18 @@ func Init(configPath string) *YaprSDK {
 		panic(err)
 	}
 	pod := uuid.New().String()
-	st, err := impl.NewImpl(cfg, pod)
+	st, err := store_impl.NewImpl(cfg, pod)
 	store.RegisterStore(st)
 	if err != nil {
 		panic(err)
 	}
+	core.RegisterStrategyBuilder(types.StrategyRandom, &builtin.RandomStrategyBuilder{})
+	core.RegisterStrategyBuilder(types.StrategyRoundRobin, &builtin.RoundRobinStrategyBuilder{})
+	core.RegisterStrategyBuilder(types.StrategyWeightedRandom, &builtin.WeightedRandomStrategyBuilder{})
+	core.RegisterStrategyBuilder(types.StrategyWeightedRoundRobin, &builtin.WeightedRoundRobinStrategyBuilder{})
+	core.RegisterStrategyBuilder(types.StrategyLeastCost, &builtin.LeastCostStrategyBuilder{})
+	core.RegisterStrategyBuilder(types.StrategyDirect, &builtin.DirectStrategyBuilder{})
+	core.RegisterStrategyBuilder(types.StrategyCustomLua, &builtin.CustomLuaStrategyBuilder{})
 
 	yaprSDK = &YaprSDK{
 		pod: pod,
@@ -77,7 +86,7 @@ func (y *YaprSDK) GRPCClientInterceptor(
 			logger.Errorf("get selector failed: %v", err)
 			return err
 		}
-		selector.RefreshCache(headerValue)
+		selector.NotifyRetry(headerValue)
 
 		logger.Debugf("retry %d times", i+1)
 	}
@@ -105,10 +114,10 @@ func (y *YaprSDK) GetEndpoints(selectorName string) map[types.Endpoint]*types.At
 	if err != nil {
 		return nil
 	}
-	return selector.Endpoints()
+	return selector.EndpointsWithAttribute()
 }
 
 // RegisterRoutingStrategy 注册自定义路由策略
-func (y *YaprSDK) RegisterRoutingStrategy(name string, strategyBuilder core.StrategyBuilder) {
+func (y *YaprSDK) RegisterRoutingStrategy(name string, strategyBuilder strategy.StrategyBuilder) {
 	core.RegisterStrategyBuilder(name, strategyBuilder)
 }

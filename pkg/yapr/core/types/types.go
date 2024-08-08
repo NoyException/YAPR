@@ -12,19 +12,6 @@ type MatchTarget struct {
 	Ctx  context.Context // headers
 }
 
-const (
-	StrategyRandom             = "random"               // 随机
-	StrategyRoundRobin         = "round_robin"          // 轮询
-	StrategyWeightedRandom     = "weighted_random"      // 加权随机
-	StrategyWeightedRoundRobin = "weighted_round_robin" // 加权轮询
-	StrategyLeastCost          = "least_cost"           // 最少开销，开销越高权重越低
-	StrategyPassThrough        = "pass_through"         // 透传
-	StrategyHashRing           = "hash_ring"            // 哈希环法
-	//StrategyJumpConsistentHash = "jump"                 // 跳跃一致性哈希
-	StrategyDirect    = "direct"     // 指定目标路由
-	StrategyCustomLua = "custom_lua" // 自定义
-)
-
 type Endpoint struct {
 	IP  string `yaml:"ip" json:"ip,omitempty"`   // ip
 	Pod string `yaml:"pod" json:"pod,omitempty"` // pod
@@ -63,13 +50,6 @@ type Attributes struct {
 type Attribute struct {
 	Weight   uint32 `yaml:"weight" json:"weight,omitempty"`     // 权重，默认为1
 	Deadline int64  `yaml:"deadline" json:"deadline,omitempty"` // 截止时间，单位毫秒，0表示永久，-1表示已过期
-}
-
-// DirectCache 动态键值路由缓存
-type DirectCache interface {
-	Get(headerValue string) (*Endpoint, error)
-	Refresh(headerValue string)
-	Clear()
 }
 
 type BufferType string
@@ -116,6 +96,19 @@ type Router struct {
 	Direct string  `yaml:"direct" json:"direct,omitempty"` // #直连，填写后将忽略路由选择器 TODO: Debug
 }
 
+const (
+	StrategyRandom             = "random"               // 随机
+	StrategyRoundRobin         = "round_robin"          // 轮询
+	StrategyWeightedRandom     = "weighted_random"      // 加权随机
+	StrategyWeightedRoundRobin = "weighted_round_robin" // 加权轮询
+	StrategyLeastCost          = "least_cost"           // 最少开销，开销越高权重越低
+	StrategyPassThrough        = "pass_through"         // 透传
+	StrategyHashRing           = "hash_ring"            // 哈希环法
+	//StrategyJumpConsistentHash = "jump"                 // 跳跃一致性哈希
+	StrategyDirect    = "direct"     // 指定目标路由
+	StrategyCustomLua = "custom_lua" // 自定义
+)
+
 // Selector 全名是Endpoint Selector，指定了目标service和选择策略【以json格式存etcd】
 type Selector struct {
 	Name      string            `yaml:"name" json:"name,omitempty"`             // #唯一名称
@@ -128,6 +121,4 @@ type Selector struct {
 	CacheSize uint32            `yaml:"cache_size" json:"cache_size,omitempty"` // #动态键值路由缓存大小，仅在指定目标策略下有效，默认为4096
 	Script    string            `yaml:"script" json:"script,omitempty"`         // #自定义lua脚本，仅在自定义策略下有效
 	//DirectMap    map[string]Endpoint `yaml:"-" json:"direct_map,omitempty"`      // 指定目标路由，从redis现存现取，表名$SelectorName，键值对为header value -> Endpoint
-
-	Cache DirectCache `yaml:"-" json:"-"` // 动态路由缓存
 }
