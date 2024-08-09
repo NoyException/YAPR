@@ -86,12 +86,6 @@ func (r *Router) Route(target *types.MatchTarget) (string, *types.Endpoint, uint
 			continue
 		}
 
-		// TODO: 删除该种直连的支持
-		if r.Direct != "" {
-			ip, port, err := parseTarget(r.Direct)
-			return "", &types.Endpoint{IP: ip}, port, nil, err
-		}
-
 		selector, err := GetSelector(rule.Selector)
 		if err != nil {
 			logger.Warnf("selector %s not found", rule.Selector)
@@ -151,7 +145,11 @@ func (r *Router) Route(target *types.MatchTarget) (string, *types.Endpoint, uint
 		if headers != nil {
 			headers["yapr-router"] = r.Name
 		}
-		return selector.Service, endpoint, selector.Port, headers, nil
+		port := selector.Port
+		if endpoint.Port != nil {
+			port = *endpoint.Port
+		}
+		return selector.Service, endpoint, port, headers, nil
 	}
 	return "", nil, 0, nil, errcode.ErrNoRuleMatched
 }

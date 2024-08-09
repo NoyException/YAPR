@@ -277,6 +277,11 @@ func (s *Impl) GetServices() (map[string]*types.Service, error) {
 }
 
 func (s *Impl) RegisterService(service string, endpoints []*types.Endpoint) (chan struct{}, error) {
+	_, ok := s.serviceToLease[service]
+	if ok {
+		return nil, errcode.ErrServiceAlreadyRegistered
+	}
+
 	bytes, err := json.Marshal(endpoints)
 	if err != nil {
 		return nil, err
@@ -311,6 +316,7 @@ func (s *Impl) RegisterService(service string, endpoints []*types.Endpoint) (cha
 	if err != nil {
 		// 关闭租约
 		_, _ = s.etcdClient.Revoke(context.Background(), leaseID)
+		delete(s.serviceToLease, service)
 		return nil, err
 	}
 	s.serviceToLease[service] = leaseID
@@ -325,7 +331,7 @@ func (s *Impl) UnregisterService(service string) error {
 	}
 	_, err := s.etcdClient.Revoke(context.Background(), leaseID)
 	if err != nil {
-		return err
+		logger.Errorf("revoke lease error: %v", err)
 	}
 	delete(s.serviceToLease, service)
 

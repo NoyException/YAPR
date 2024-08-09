@@ -1,6 +1,8 @@
 package types
 
-import "sync"
+import (
+	"sync"
+)
 
 type Service struct {
 	Name           string                   `yaml:"name" json:"name,omitempty"`          // #唯一名称
@@ -119,5 +121,8 @@ func (s *Service) SetAttribute(endpoint *Endpoint, selector string, attr *Attrib
 }
 
 func (s *Service) Version() uint64 {
+	if s.dirty {
+		s.update()
+	}
 	return s.version
 }

@@ -38,7 +38,7 @@ services:
       - 19090:9090
     volumes:
       - './yapr.yaml:/app/yapr.yaml'
-    command: ./yapr_echo_server --name=svr1 --addr=server-1:9090 --weight=1
+    command: ./yapr_echo_server --name=svr1 --ip=server-1 --weight=1
     depends_on:
       - etcd
       - redis
@@ -53,7 +53,7 @@ services:
       - 19091:9090
     volumes:
       - './yapr.yaml:/app/yapr.yaml'
-    command: ./yapr_echo_server --name=svr2 --addr=server-2:9090 --weight=2
+    command: ./yapr_echo_server --name=svr2 --ip=server-2 --weight=2
     depends_on:
       - etcd
       - redis
@@ -68,7 +68,7 @@ services:
       - 19092:9090
     volumes:
       - './yapr.yaml:/app/yapr.yaml'
-    command: ./yapr_echo_server --name=svr3 --addr=server-3:9090 --weight=3
+    command: ./yapr_echo_server --name=svr3 --ip=server-3 --weight=3
     depends_on:
       - etcd
       - redis
@@ -84,7 +84,7 @@ services:
     volumes:
       - './yapr.yaml:/app/yapr.yaml'
       - './shard.lua:/app/shard.lua'
-    command: ./yapr_echo_client --name=cli1 --addr=client-1:9090
+    command: ./yapr_echo_client --name=cli1
     depends_on:
       - etcd
       - redis
@@ -100,7 +100,7 @@ services:
     volumes:
       - './yapr.yaml:/app/yapr.yaml'
       - './shard.lua:/app/shard.lua'
-    command: ./yapr_echo_client --name=cli2 --addr=client-2:9090
+    command: ./yapr_echo_client --name=cli2
     depends_on:
       - etcd
       - redis

@@ -14,15 +14,13 @@ import (
 	"noy/router/pkg/yapr/logger"
 	"noy/router/pkg/yapr/metrics"
 	"strconv"
-	"strings"
-	"time"
 )
 
 var (
 	// 统一参数
 	configPath = flag.String("configPath", "yapr.yaml", "config file path")
 	name       = flag.String("name", "unnamed", "node name, must be unique")
-	addr       = flag.String("addr", "localhost:23333", "node address, must be unique")
+	ip         = flag.String("ip", "localhost", "node ip address, must be unique")
 	weight     = flag.String("weight", "1", "default weight for all endpoints")
 	//httpAddr   = flag.String("httpAddr", "localhost:23334", "node http address, must be unique")
 )
@@ -62,45 +60,59 @@ func main() {
 	}()
 
 	go metrics.Init()
-	l, err := net.Listen("tcp", *addr)
-	if err != nil {
-		panic(err)
-	}
-
 	sdk := yaprsdk.Init(*configPath, *name)
 	sdk.SetMigrationListener(func(selectorName, headerValue string, from, to *types.Endpoint) {
 		logger.Infof("migration: %s, %s, %v, %v", selectorName, headerValue, from, to)
 	})
 
-	s := grpc.NewServer(grpc.UnaryInterceptor(sdk.GRPCServerInterceptor))
-	defer s.Stop()
-	endpoint := sdk.NewEndpoint(strings.Split(*addr, ":")[0])
-	echopb.RegisterEchoServiceServer(s, &EchoServer{
-		Endpoint: endpoint,
-	})
+	endpoints := make([]*types.Endpoint, 0)
 
-	go func() {
-		time.Sleep(1 * time.Millisecond)
-		w, err := strconv.ParseUint(*weight, 10, 32)
+	for port := uint32(9090); port < 9100; port++ {
+		addr := fmt.Sprintf("%s:%d", *ip, port)
+		l, err := net.Listen("tcp", addr)
 		if err != nil {
-			logger.Warnf("convert weight error: %v", err)
-			w = 1
+			panic(err)
 		}
-		err = sdk.SetEndpointAttribute(endpoint, "s1", &types.Attribute{
+		s := grpc.NewServer(grpc.UnaryInterceptor(sdk.GRPCServerInterceptor))
+		defer s.Stop()
+
+		endpoint := sdk.NewEndpointWithPort(*ip, port)
+		endpoints = append(endpoints, endpoint)
+		echopb.RegisterEchoServiceServer(s, &EchoServer{
+			Endpoint: endpoint,
+		})
+
+		go func() {
+			log.Printf("server listening at %v", l.Addr())
+			if err := s.Serve(l); err != nil {
+				panic(err)
+			}
+		}()
+	}
+
+	w, err := strconv.ParseUint(*weight, 10, 32)
+	if err != nil {
+		logger.Warnf("convert weight error: %v", err)
+		w = 1
+	}
+	logger.Debugf("weight: %d", w)
+
+	for _, endpoint := range endpoints {
+		err = sdk.SetEndpointAttribute(endpoint, "echo-rr", &types.Attribute{
 			Weight: uint32(w),
 		})
 		if err != nil {
 			panic(err)
 		}
-		for {
-			ch, err := sdk.RegisterService("echosvr", []*types.Endpoint{endpoint})
-			if err != nil {
-				panic(err)
-			}
-			<-ch
-		}
-	}()
+	}
 
+	for {
+		ch, err := sdk.RegisterService("echosvr", endpoints)
+		if err != nil {
+			panic(err)
+		}
+		<-ch
+	}
 	//// 捕获 SIGTERM 信号
 	//sigChan := make(chan os.Signal, 1)
 	//signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
@@ -116,9 +128,4 @@ func main() {
 	//	s.Stop()
 	//	os.Exit(0)
 	//}()
-
-	log.Printf("server listening at %v", l.Addr())
-	if err := s.Serve(l); err != nil {
-		panic(err)
-	}
 }

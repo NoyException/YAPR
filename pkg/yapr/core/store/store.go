@@ -13,7 +13,6 @@ type Store interface {
 	GetSelectors() (map[string]*types.Selector, error)
 	GetServices() (map[string]*types.Service, error)
 
-	// RegisterService 服务注册，当返回的 channel 被关闭时，表示服务掉线，需要重新注册
 	RegisterService(service string, endpoints []*types.Endpoint) (chan struct{}, error)
 	UnregisterService(service string) error
 	//RegisterServiceChangeListener(listener func(service string, isPut bool, pod string, endpoints []*types.Endpoint))

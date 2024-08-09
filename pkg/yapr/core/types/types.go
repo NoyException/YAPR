@@ -13,8 +13,9 @@ type MatchTarget struct {
 }
 
 type Endpoint struct {
-	IP  string `yaml:"ip" json:"ip,omitempty"`   // ip
-	Pod string `yaml:"pod" json:"pod,omitempty"` // pod
+	IP   string  `yaml:"ip" json:"ip,omitempty"`     // ip
+	Pod  string  `yaml:"pod" json:"pod,omitempty"`   // pod
+	Port *uint32 `yaml:"port" json:"port,omitempty"` // port，不填则默认为Selector的Port
 }
 
 func (e *Endpoint) String() string {
@@ -37,7 +38,7 @@ func EndpointFromString(s string) *Endpoint {
 }
 
 func (e *Endpoint) Equal(e2 *Endpoint) bool {
-	return e.IP == e2.IP
+	return e.IP == e2.IP && e.Port == e2.Port
 }
 
 // Attributes 代表了一个服务的属性
@@ -102,11 +103,9 @@ const (
 	StrategyWeightedRandom     = "weighted_random"      // 加权随机
 	StrategyWeightedRoundRobin = "weighted_round_robin" // 加权轮询
 	StrategyLeastCost          = "least_cost"           // 最少开销，开销越高权重越低
-	StrategyPassThrough        = "pass_through"         // 透传
 	StrategyHashRing           = "hash_ring"            // 哈希环法
-	//StrategyJumpConsistentHash = "jump"                 // 跳跃一致性哈希
-	StrategyDirect    = "direct"     // 指定目标路由
-	StrategyCustomLua = "custom_lua" // 自定义
+	StrategyDirect             = "direct"               // 指定目标路由
+	StrategyCustomLua          = "custom_lua"           // 自定义
 )
 
 // Selector 全名是Endpoint Selector，指定了目标service和选择策略【以json格式存etcd】

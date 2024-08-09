@@ -21,7 +21,6 @@ var (
 	// 统一参数
 	configPath = flag.String("configPath", "yapr.yaml", "config file path")
 	name       = flag.String("name", "unnamed-node", "node name, must be unique")
-	addr       = flag.String("addr", "localhost:23333", "node address, must be unique")
 	//httpAddr   = flag.String("httpAddr", "localhost:23334", "node http address, must be unique")
 )
 
@@ -62,7 +61,7 @@ func main() {
 		if err != nil {
 			logger.Errorf(err.Error())
 		} else {
-			log.Println(response.Message)
+			logger.Info(response.Message)
 		}
 
 		// 测试自定义路由

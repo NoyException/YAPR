@@ -9,12 +9,15 @@ import (
 type WeightedRoundRobinStrategyBuilder struct{}
 
 func (b *WeightedRoundRobinStrategyBuilder) Build(s *types.Selector) (strategy.Strategy, error) {
-	return &WeightedRoundRobinStrategy{nil, 0}, nil
+	return &WeightedRoundRobinStrategy{
+		lastIdx: 0,
+	}, nil
 }
 
 type WeightedRoundRobinStrategy struct {
-	endpoints map[types.Endpoint]*types.Attribute
-	lastIdx   uint32 // 上次选择的endpoint索引
+	endpoints  []*types.Endpoint
+	attributes []*types.Attribute
+	lastIdx    uint32 // 上次选择的endpoint索引
 }
 
 // Select 实现上是选取最大权重（weight = C - cost）
@@ -26,13 +29,13 @@ func (r *WeightedRoundRobinStrategy) Select(_ *types.MatchTarget) (*types.Endpoi
 	r.lastIdx++
 	total := uint32(0)
 	var first *types.Endpoint
-	for endpoint, attr := range r.endpoints {
+	for i, endpoint := range r.endpoints {
 		if first == nil {
-			first = &endpoint
+			first = endpoint
 		}
-		total += attr.Weight
+		total += r.attributes[i].Weight
 		if r.lastIdx < total {
-			return &endpoint, nil, nil
+			return endpoint, nil, nil
 		}
 	}
 	r.lastIdx = 0
@@ -43,5 +46,10 @@ func (r *WeightedRoundRobinStrategy) Select(_ *types.MatchTarget) (*types.Endpoi
 }
 
 func (r *WeightedRoundRobinStrategy) Update(endpoints map[types.Endpoint]*types.Attribute) {
-	r.endpoints = endpoints
+	r.endpoints = make([]*types.Endpoint, 0, len(endpoints))
+	r.attributes = make([]*types.Attribute, 0, len(endpoints))
+	for endpoint, attr := range endpoints {
+		r.endpoints = append(r.endpoints, &endpoint)
+		r.attributes = append(r.attributes, attr)
+	}
 }

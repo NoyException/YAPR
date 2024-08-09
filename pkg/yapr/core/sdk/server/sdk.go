@@ -149,7 +149,7 @@ func (y *YaprSDK) GRPCServerInterceptor(ctx context.Context, req any, info *grpc
 	return handler(ctx, req)
 }
 
-// RegisterService 服务注册，当返回的 channel 被关闭时，表示服务掉线，需要重新注册
+// RegisterService 服务注册，对某个serviceName只能注册一次。当返回的 channel 被关闭时，表示服务掉线，需要重新注册
 func (y *YaprSDK) RegisterService(serviceName string, endpoints []*types.Endpoint) (chan struct{}, error) {
 	ch, err := store.MustStore().RegisterService(serviceName, endpoints)
 	if err != nil {
@@ -222,5 +222,13 @@ func (y *YaprSDK) NewEndpoint(ip string) *types.Endpoint {
 	return &types.Endpoint{
 		IP:  ip,
 		Pod: y.pod,
+	}
+}
+
+func (y *YaprSDK) NewEndpointWithPort(ip string, port uint32) *types.Endpoint {
+	return &types.Endpoint{
+		IP:   ip,
+		Pod:  y.pod,
+		Port: &port,
 	}
 }
