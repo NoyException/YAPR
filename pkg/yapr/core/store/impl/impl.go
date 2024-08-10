@@ -13,6 +13,7 @@ import (
 	"noy/router/pkg/yapr/core/store/etcd"
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
+	"noy/router/pkg/yapr/metrics"
 	"strings"
 	"sync"
 	"time"
@@ -178,7 +179,7 @@ type ServiceChangeType int
 
 const (
 	ServiceChangeTypePut ServiceChangeType = iota
-	ServiceChangeTypeDelete
+	ServiceChangeTypeRemove
 	ServiceChangeTypeTimeout
 )
 
@@ -187,38 +188,6 @@ func (s *Impl) GetServices() (map[string]*types.Service, error) {
 	defer cancel()
 
 	services := make(map[string]*types.Service)
-	// 监听服务的节点变化
-	s.RegisterServiceChangeListener(func(service string, changeType ServiceChangeType, pod string, endpoints []*types.Endpoint) {
-		svc := services[service]
-		svc.SetDirty()
-		switch changeType {
-		case ServiceChangeTypePut:
-			for _, endpoint := range endpoints {
-				svc.AttrMap[*endpoint] = &types.Attributes{
-					Available:  true,
-					InSelector: make(map[string]*types.Attribute),
-				}
-			}
-			svc.EndpointsByPod[pod] = endpoints
-		case ServiceChangeTypeDelete:
-			logger.Infof("delete pod: %v in service %v", pod, service)
-			endpoints = svc.EndpointsByPod[pod]
-			for _, endpoint := range endpoints {
-				logger.Debugf("delete endpoint: %v in service %v", endpoint, service)
-				delete(svc.AttrMap, *endpoint)
-				for ep := range svc.AttrMap {
-					if ep.Equal(endpoint) {
-						logger.Errorf("failed to delete endpoint: %v in service %v", endpoint, service)
-					}
-				}
-			}
-			delete(svc.EndpointsByPod, pod)
-		case ServiceChangeTypeTimeout:
-			for _, endpoint := range svc.EndpointsByPod[pod] {
-				svc.AttrMap[*endpoint].Available = false
-			}
-		}
-	})
 
 	// 获取所有服务
 	response, err := s.etcdClient.Get(ctx, "svc/data/", clientv3.WithPrefix())
@@ -270,9 +239,31 @@ func (s *Impl) GetServices() (map[string]*types.Service, error) {
 		if err != nil {
 			return nil, err
 		}
-		service.EndpointsByPod[id] = endpoints
-		service.SetDirty()
+		service.RegisterPod(id, endpoints)
 	}
+
+	// 监听服务的节点变化
+	s.RegisterServiceChangeListener(func(service string, changeType ServiceChangeType, pod string, endpoints []*types.Endpoint) {
+		svc, ok := services[service]
+		if !ok {
+			logger.Errorf("service %v not found", service)
+			return
+		}
+		switch changeType {
+		case ServiceChangeTypePut:
+			logger.Infof("put pod: %v in service %v", pod, service)
+			metrics.IncAddPodTotal(service, pod)
+			svc.RegisterPod(pod, endpoints)
+		case ServiceChangeTypeRemove:
+			logger.Infof("remove pod: %v in service %v", pod, service)
+			metrics.IncRemovePodTotal(service, pod)
+			svc.RemovePod(pod)
+		case ServiceChangeTypeTimeout:
+			logger.Warnf("service %v provided by pod %v timeout", service, pod)
+			metrics.IncHangPodTotal(service, pod)
+			svc.HangPod(pod)
+		}
+	})
 	return services, nil
 }
 
@@ -321,6 +312,7 @@ func (s *Impl) RegisterService(service string, endpoints []*types.Endpoint) (cha
 	}
 	s.serviceToLease[service] = leaseID
 	_, err = s.etcdClient.Put(ctx, "svc/data/"+service+"/"+s.pod, string(bytes))
+	logger.Infof("service %v registered with %d endpoints", service, len(endpoints))
 	return keepAliveCh, err
 }
 
@@ -368,7 +360,7 @@ func (s *Impl) RegisterServiceChangeListener(listener func(service string, chang
 					if isLease {
 						listener(service, ServiceChangeTypeTimeout, id, nil)
 					} else {
-						listener(service, ServiceChangeTypeDelete, id, nil)
+						listener(service, ServiceChangeTypeRemove, id, nil)
 					}
 					continue
 				}

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"noy/router/pkg/yapr/logger"
 	"sync"
 )
 
@@ -32,7 +33,7 @@ func NewService(name string) *Service {
 	}
 }
 
-func (s *Service) SetDirty() {
+func (s *Service) setDirty() {
 	s.dirty = true
 }
 
@@ -117,7 +118,29 @@ func (s *Service) SetAttribute(endpoint *Endpoint, selector string, attr *Attrib
 		s.AttrMap[*endpoint] = m
 	}
 	m.InSelector[selector] = attr
-	s.SetDirty()
+	s.setDirty()
+}
+
+func (s *Service) IsAvailable(endpoint *Endpoint) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	m, ok := s.AttrMap[*endpoint]
+	if !ok {
+		return false
+	}
+	return m.Available
+}
+
+func (s *Service) GetAttribute(endpoint *Endpoint, selector string) *Attribute {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	m, ok := s.AttrMap[*endpoint]
+	if !ok {
+		return nil
+	}
+	return m.InSelector[selector]
 }
 
 func (s *Service) Version() uint64 {
@@ -125,4 +148,53 @@ func (s *Service) Version() uint64 {
 		s.update()
 	}
 	return s.version
+}
+
+func (s *Service) RegisterPod(pod string, endpoints []*Endpoint) {
+	defer s.update()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if oldEndpoints, ok := s.EndpointsByPod[pod]; ok {
+		for _, endpoint := range oldEndpoints {
+			delete(s.AttrMap, *endpoint)
+		}
+	}
+
+	for _, endpoint := range endpoints {
+		s.AttrMap[*endpoint] = &Attributes{
+			Available:  true,
+			InSelector: make(map[string]*Attribute),
+		}
+	}
+	s.EndpointsByPod[pod] = endpoints
+	s.setDirty()
+}
+
+func (s *Service) RemovePod(pod string) {
+	defer s.update()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	endpoints := s.EndpointsByPod[pod]
+	for _, endpoint := range endpoints {
+		logger.Debugf("delete endpoint: %v in service %v", endpoint, s.Name)
+		delete(s.AttrMap, *endpoint)
+	}
+	delete(s.EndpointsByPod, pod)
+	s.setDirty()
+}
+
+func (s *Service) HangPod(pod string) {
+	defer s.update()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	endpoints := s.EndpointsByPod[pod]
+	for _, endpoint := range endpoints {
+		if attr, ok := s.AttrMap[*endpoint]; ok {
+			attr.Available = false
+		}
+	}
+	s.setDirty()
 }

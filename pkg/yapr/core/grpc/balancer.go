@@ -12,7 +12,7 @@ import (
 	"noy/router/pkg/yapr/logger"
 )
 
-func init() { // nolint:gochecknoinits
+func InitBalancer() {
 	logger.Infof("init yaprgrpc balancer")
 	balancer.Register(&yaprBalancerBuilder{})
 }
@@ -174,7 +174,7 @@ func (y *yaprBalancer) updateSubConnState(subConn balancer.SubConn, state balanc
 		logger.Debugf("Balancer got state changes for an unknown SubConn: %p, %v", subConn, s)
 		return
 	}
-	logger.Infof("handle SubConn state change: %p, from %v to %v", subConn, oldS, s)
+	logger.Debugf("handle SubConn state change: %p, from %v to %v", subConn, oldS, s)
 
 	if oldS == connectivity.TransientFailure &&
 		(s == connectivity.Connecting || s == connectivity.Idle) {

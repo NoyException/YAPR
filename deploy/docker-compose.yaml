@@ -38,10 +38,15 @@ services:
       - 19090:9090
     volumes:
       - './yapr.yaml:/app/yapr.yaml'
+      - './.logs:/.logs'
     command: ./yapr_echo_server --name=svr1 --ip=server-1 --weight=1
     depends_on:
       - etcd
       - redis
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     networks:
       - app-tier
   server-2:
@@ -51,12 +56,19 @@ services:
     ports:
       - 18081:8080
       - 19091:9090
+    expose:
+      - "23333-27333:23333-27333"
     volumes:
       - './yapr.yaml:/app/yapr.yaml'
-    command: ./yapr_echo_server --name=svr2 --ip=server-2 --weight=2
+      - './.logs:/.logs'
+    command: ./yapr_echo_server --name=svr2 --ip=server-2 --weight=2 --gracefulStop=false
     depends_on:
       - etcd
       - redis
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     networks:
       - app-tier
   server-3:
@@ -66,12 +78,19 @@ services:
     ports:
       - 18082:8080
       - 19092:9090
+    expose:
+      - "23333-27333:23333-27333"
     volumes:
       - './yapr.yaml:/app/yapr.yaml'
+      - './.logs:/.logs'
     command: ./yapr_echo_server --name=svr3 --ip=server-3 --weight=3
     depends_on:
       - etcd
       - redis
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     networks:
       - app-tier
   client-1:
@@ -81,13 +100,23 @@ services:
     ports:
       - 18090:8080
       - 19080:9090
+    expose:
+      - "23333-27333:23333-27333"
     volumes:
       - './yapr.yaml:/app/yapr.yaml'
       - './shard.lua:/app/shard.lua'
+      - './.logs:/.logs'
     command: ./yapr_echo_client --name=cli1
     depends_on:
       - etcd
       - redis
+      - server-1
+      - server-2
+      - server-3
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     networks:
       - app-tier
   client-2:
@@ -100,10 +129,18 @@ services:
     volumes:
       - './yapr.yaml:/app/yapr.yaml'
       - './shard.lua:/app/shard.lua'
+      - './.logs:/.logs'
     command: ./yapr_echo_client --name=cli2
     depends_on:
       - etcd
       - redis
+      - server-1
+      - server-2
+      - server-3
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     networks:
       - app-tier
   # ---------- monitor ----------

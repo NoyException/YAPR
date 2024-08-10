@@ -20,7 +20,7 @@ yapr:
         - matchers:
             - uri: ".*/Echo"
               port: 9090
-          selector: "echo-rr"
+          selector: "echo-rand"
           error_handler:
             no_endpoint: "pass"
             unavailable: "block"
@@ -48,6 +48,11 @@ yapr:
       service: "echosvr"
       port: 9090
       strategy: "weighted_round_robin"
+
+    - name: "echo-rand"
+      service: "echosvr"
+      port: 9090
+      strategy: "random"
 
     - name: "shard"
       service: "echosvr"

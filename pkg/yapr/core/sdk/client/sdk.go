@@ -7,7 +7,7 @@ import (
 	"noy/router/pkg/yapr/core"
 	"noy/router/pkg/yapr/core/config"
 	"noy/router/pkg/yapr/core/errcode"
-	_ "noy/router/pkg/yapr/core/grpc"
+	yaprgrpc "noy/router/pkg/yapr/core/grpc"
 	"noy/router/pkg/yapr/core/store"
 	"noy/router/pkg/yapr/core/store/impl"
 	"noy/router/pkg/yapr/core/strategy"
@@ -45,6 +45,9 @@ func Init(configPath string) *YaprSDK {
 	core.RegisterStrategyBuilder(types.StrategyHashRing, &builtin.HashRingStrategyBuilder{})
 	core.RegisterStrategyBuilder(types.StrategyDirect, &builtin.DirectStrategyBuilder{})
 	core.RegisterStrategyBuilder(types.StrategyCustomLua, &builtin.CustomLuaStrategyBuilder{})
+
+	yaprgrpc.InitResolver()
+	yaprgrpc.InitBalancer()
 
 	yaprSDK = &YaprSDK{
 		pod: pod,

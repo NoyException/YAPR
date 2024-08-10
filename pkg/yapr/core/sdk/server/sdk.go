@@ -145,7 +145,6 @@ func (y *YaprSDK) GRPCServerInterceptor(ctx context.Context, req any, info *grpc
 			}).ToGRPCError()
 		}
 	}
-	logger.Infof("success")
 	return handler(ctx, req)
 }
 

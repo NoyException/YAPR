@@ -91,15 +91,15 @@ func (r *Router) Route(target *types.MatchTarget) (string, *types.Endpoint, uint
 			logger.Warnf("selector %s not found", rule.Selector)
 		}
 
-		endpoint, headers, err := selector.Select(target)
+		endpoint, headers, selectErr := selector.Select(target)
 
-		if err != nil {
+		if selectErr != nil {
 			var handler *types.ErrorHandler
-			if errors.Is(err, errcode.ErrNoEndpointAvailable) || errors.Is(err, errcode.ErrNoCustomRoute) {
+			if errors.Is(selectErr, errcode.ErrNoEndpointAvailable) || errors.Is(selectErr, errcode.ErrNoCustomRoute) {
 				if h, ok := rule.ErrorHandler[types.RuleErrorNoEndpoint]; ok {
 					handler = h
 				}
-			} else if errors.Is(err, errcode.ErrEndpointUnavailable) {
+			} else if errors.Is(selectErr, errcode.ErrEndpointUnavailable) {
 				if h, ok := rule.ErrorHandler[types.RuleErrorEndpointUnavailable]; ok {
 					handler = h
 				}
@@ -110,19 +110,23 @@ func (r *Router) Route(target *types.MatchTarget) (string, *types.Endpoint, uint
 			}
 
 			if handler == nil {
-				logger.Errorf("selector %s select failed: %v", rule.Selector, err)
-				return "", nil, 0, nil, err
+				logger.Errorf("selector %s select failed: %v", rule.Selector, selectErr)
+				return "", nil, 0, nil, selectErr
 			}
 
 			switch *handler {
 			case types.HandlerPass:
-				logger.Infof("selector %s select failed: %v, move to the next rule", rule.Selector, err)
+				logger.Infof("selector %s select failed: %v, move to the next rule", rule.Selector, selectErr)
 				continue
 			case types.HandlerBlock:
+				logger.Errorf("selector %s select failed: %v, block the request", rule.Selector, selectErr)
 				service, err := GetService(selector.Service)
 				if err != nil {
 					logger.Warnf("service %s not found", selector.Service)
 					continue
+				}
+				if _, ok := target.Ctx.Deadline(); !ok {
+					logger.Warnf("context deadline not set")
 				}
 				flag := true
 				for flag {

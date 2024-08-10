@@ -13,16 +13,18 @@ import (
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
 	"noy/router/pkg/yapr/metrics"
-	"strconv"
+	"os"
+	"os/signal"
+	"syscall"
 )
 
 var (
 	// 统一参数
-	configPath = flag.String("configPath", "yapr.yaml", "config file path")
-	name       = flag.String("name", "unnamed", "node name, must be unique")
-	ip         = flag.String("ip", "localhost", "node ip address, must be unique")
-	weight     = flag.String("weight", "1", "default weight for all endpoints")
-	//httpAddr   = flag.String("httpAddr", "localhost:23334", "node http address, must be unique")
+	configPath   = flag.String("configPath", "yapr.yaml", "config file path")
+	name         = flag.String("name", "unnamed", "node name, must be unique")
+	ip           = flag.String("ip", "localhost", "node ip address, must be unique")
+	weight       = flag.Int("weight", 1, "default weight for all endpoints")
+	gracefulStop = flag.Bool("gracefulStop", true, "enable graceful stop")
 )
 
 type EchoServer struct {
@@ -51,7 +53,7 @@ func (e *EchoServer) Echo(ctx context.Context, request *echopb.EchoRequest) (*ec
 func main() {
 	flag.Parse()
 
-	logger.ReplaceDefault(logger.NewWithLogFile(logger.DebugLevel, fmt.Sprintf(".logs/%s.log", *name)))
+	logger.ReplaceDefault(logger.NewWithLogFile(logger.InfoLevel, fmt.Sprintf("/.logs/%s.log", *name)))
 	defer func() {
 		err := logger.Sync()
 		if err != nil {
@@ -67,7 +69,7 @@ func main() {
 
 	endpoints := make([]*types.Endpoint, 0)
 
-	for port := uint32(9090); port < 9100; port++ {
+	for port := uint32(23333); port < 24333; port++ {
 		addr := fmt.Sprintf("%s:%d", *ip, port)
 		l, err := net.Listen("tcp", addr)
 		if err != nil {
@@ -90,20 +92,33 @@ func main() {
 		}()
 	}
 
-	w, err := strconv.ParseUint(*weight, 10, 32)
-	if err != nil {
-		logger.Warnf("convert weight error: %v", err)
-		w = 1
-	}
-	logger.Debugf("weight: %d", w)
+	//logger.Debugf("weight: %d", *weight)
+	//
+	//for _, endpoint := range endpoints {
+	//	time.Sleep(1 * time.Millisecond)
+	//	err := sdk.SetEndpointAttribute(endpoint, "echo-rr", &types.Attribute{
+	//		Weight: uint32(*weight),
+	//	})
+	//	if err != nil {
+	//		panic(err)
+	//	}
+	//}
 
-	for _, endpoint := range endpoints {
-		err = sdk.SetEndpointAttribute(endpoint, "echo-rr", &types.Attribute{
-			Weight: uint32(w),
-		})
-		if err != nil {
-			panic(err)
-		}
+	if *gracefulStop {
+		// 捕获 SIGTERM 信号
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+
+		go func() {
+			<-sigChan
+			logger.Infof("Received shutdown signal, performing cleanup...")
+			// 执行收尾工作
+			err := sdk.UnregisterService("echosvr")
+			if err != nil {
+				logger.Errorf("unregister service error: %v", err)
+			}
+			os.Exit(0)
+		}()
 	}
 
 	for {
@@ -112,20 +127,7 @@ func main() {
 			panic(err)
 		}
 		<-ch
+		logger.Warnf("failed to keep alive, retry")
 	}
-	//// 捕获 SIGTERM 信号
-	//sigChan := make(chan os.Signal, 1)
-	//signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
-	//
-	//go func() {
-	//	<-sigChan
-	//	logger.Infof("Received shutdown signal, performing cleanup...")
-	//	// 执行收尾工作
-	//	err := sdk.UnregisterService("echosvr")
-	//	if err != nil {
-	//		logger.Errorf("unregister service error: %v", err)
-	//	}
-	//	s.Stop()
-	//	os.Exit(0)
-	//}()
+
 }

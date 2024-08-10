@@ -7,6 +7,7 @@ import (
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
 	"noy/router/pkg/yapr/metrics"
+	"sync"
 	"time"
 )
 
@@ -14,6 +15,7 @@ import (
 type Selector struct {
 	*types.Selector
 
+	mu          sync.Mutex
 	lastVersion uint64
 	strategy    strategy.Strategy
 }
@@ -47,6 +49,9 @@ func (s *Selector) MustService() *Service {
 }
 
 func (s *Selector) NotifyRetry(headerValue string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if ss, ok := s.strategy.(strategy.StatefulStrategy); ok {
 		ss.NotifyRetry(headerValue)
 	}
@@ -71,6 +76,9 @@ func (s *Selector) Select(target *types.MatchTarget) (endpoint *types.Endpoint, 
 		metrics.ObserveSelectorDuration(s.Strategy, time.Since(start).Seconds())
 	}()
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.strategy == nil {
 		s.strategy, err = GetStrategy(s)
 		if err != nil {
@@ -80,14 +88,15 @@ func (s *Selector) Select(target *types.MatchTarget) (endpoint *types.Endpoint, 
 	}
 
 	service := s.MustService()
-	if s.lastVersion < service.Version() {
+	version := service.Version()
+	if s.lastVersion < version {
 		s.strategy.Update(s.EndpointsWithAttribute())
-		s.lastVersion = service.Version()
+		s.lastVersion = version
 	}
 
 	headers = s.baseHeaders()
 	endpoint, appendHeaders, err := s.strategy.Select(target)
-	if endpoint != nil && err == nil && !s.MustService().AttrMap[*endpoint].Available {
+	if endpoint != nil && err == nil && !s.MustService().IsAvailable(endpoint) {
 		err = errcode.ErrEndpointUnavailable
 	}
 	if appendHeaders != nil {

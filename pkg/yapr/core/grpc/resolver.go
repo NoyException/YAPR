@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-func init() { // nolint:gochecknoinits
+func InitResolver() {
 	logger.Infof("init yaprgrpc resolver")
 	resolver.Register(&yaprResolverBuilder{})
 }

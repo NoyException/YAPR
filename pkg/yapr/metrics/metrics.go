@@ -9,16 +9,22 @@ import (
 	"noy/router/pkg/yapr/logger"
 )
 
-const (
-	NodeTypeWhateverServer = "whateverSvr"
-)
-
 var (
-	//// 某个计数器指标
-	//whateverTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-	//	Name: "whatever_total",
-	//	Help: "The total number of whatever",
-	//}, globalLabels)
+	// 某个计数器指标
+	addPodTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "add_pod_total",
+		Help: "The total number of pods added",
+	}, []string{"service", "pod"})
+
+	removePodTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "remove_pod_total",
+		Help: "The total number of pods removed",
+	}, []string{"service", "pod"})
+
+	hangPodTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hang_pod_total",
+		Help: "The total number of pods hang",
+	}, []string{"service", "pod"})
 
 	gRPCDuration = promauto.NewSummaryVec(prometheus.SummaryOpts{
 		Name:       "grpc_duration",
@@ -49,6 +55,18 @@ func Init() {
 	http.Handle("/metrics", promhttp.Handler())
 	logger.Info("metrics server started at :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+func IncAddPodTotal(service string, pod string) {
+	addPodTotal.WithLabelValues(service, pod).Inc()
+}
+
+func IncRemovePodTotal(service string, pod string) {
+	removePodTotal.WithLabelValues(service, pod).Inc()
+}
+
+func IncHangPodTotal(service string, pod string) {
+	hangPodTotal.WithLabelValues(service, pod).Inc()
 }
 
 func ObserveGRPCDuration(target string, duration float64) {
