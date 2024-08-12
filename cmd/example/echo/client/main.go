@@ -52,7 +52,7 @@ func main() {
 		uid := 1000000 + i
 		uids[i] = fmt.Sprintf("%d", uid)
 	}
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 500; i++ {
 		go func() {
 			ticker := time.NewTicker(10 * time.Millisecond)
 			for {
@@ -65,6 +65,7 @@ func main() {
 				start := time.Now()
 				response, err := client.Echo(ctx2, &echopb.EchoRequest{Message: "Hello world from user " + uid})
 				metrics.ObserveGRPCDuration("echo", time.Since(start).Seconds())
+				metrics.IncRequestTotal(*name, "echo/Echo")
 				if err != nil {
 					logger.Errorf(err.Error())
 				} else {

@@ -47,6 +47,7 @@ func (e *EchoServer) Echo(ctx context.Context, request *echopb.EchoRequest) (*ec
 			//logger.Debugf("set custom route success: %v, old: %v", success, old)
 		}
 	}
+	metrics.IncRequestTotal(*name, "echo/Echo")
 	return &echopb.EchoResponse{Message: *name + ": " + request.Message}, nil
 }
 

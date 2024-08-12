@@ -49,6 +49,10 @@ services:
         hard: 65536
     networks:
       - app-tier
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
   server-2:
     image: 'noy/echoserver:latest'
     container_name: server-2
@@ -71,6 +75,10 @@ services:
         hard: 65536
     networks:
       - app-tier
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
   server-3:
     image: 'noy/echoserver:latest'
     container_name: server-3
@@ -93,6 +101,10 @@ services:
         hard: 65536
     networks:
       - app-tier
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
   client-1:
     image: 'noy/echoclient:latest'
     container_name: client-1
@@ -119,6 +131,10 @@ services:
         hard: 65536
     networks:
       - app-tier
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
   client-2:
     image: 'noy/echoclient:latest'
     container_name: client-2
@@ -143,6 +159,10 @@ services:
         hard: 65536
     networks:
       - app-tier
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
   # ---------- monitor ----------
   prometheus:
     image: 'prom/prometheus'

@@ -373,14 +373,26 @@ func (s *Impl) RegisterServiceChangeListener(listener func(service string, chang
 	}()
 }
 
+type AttributeChangeNTF struct {
+	selector  string
+	endpoint  string
+	attribute string
+}
+
 func (s *Impl) SetEndpointAttribute(endpoint *types.Endpoint, selector string, attribute *types.AttributeInSelector) error {
 	bytes, err := json.Marshal(attribute)
 	if err != nil {
 		return err
 	}
-	_, err = s.redisClient.HSet(context.Background(), "_attr_"+endpoint.String(), selector, string(bytes)).Result()
+	str := string(bytes)
+	_, err = s.redisClient.HSet(context.Background(), "_attr_"+endpoint.String(), selector, str).Result()
 	// 通知服务的属性变化
-	s.redisClient.Publish(context.Background(), "_attr_change", selector+" "+endpoint.String())
+
+	s.redisClient.Publish(context.Background(), "_attr_change", &AttributeChangeNTF{
+		selector:  selector,
+		endpoint:  endpoint.String(),
+		attribute: str,
+	})
 	return err
 }
 
@@ -392,25 +404,22 @@ func (s *Impl) RegisterAttributeChangeListener(listener func(endpoint *types.End
 		}()
 		for {
 			msg := <-pubsub.Channel()
-			splits := strings.Split(msg.Payload, " ")
-			if len(splits) != 2 {
-				logger.Warnf("invalid message: %s", msg.Payload)
-				continue
-			}
-			selector := splits[0]
-			endpoint := splits[1]
-			res, err := s.redisClient.HGet(context.Background(), "_attr_"+endpoint, selector).Result()
-			if err != nil {
-				logger.Warnf("get attribute error: %v", err)
-				continue
-			}
-			var attr types.AttributeInSelector
-			err = json.Unmarshal([]byte(res), &attr)
-			if err != nil {
-				logger.Warnf("unmarshal attribute error: %v", err)
-				continue
-			}
-			listener(types.EndpointFromString(endpoint), selector, &attr)
+			go func() {
+				var ntf AttributeChangeNTF
+				err := json.Unmarshal([]byte(msg.Payload), &ntf)
+				if err != nil {
+					logger.Warnf("unmarshal error: %v", err)
+					return
+				}
+				endpoint := types.EndpointFromString(ntf.endpoint)
+				var attr types.AttributeInSelector
+				err = json.Unmarshal([]byte(ntf.attribute), &attr)
+				if err != nil {
+					logger.Warnf("unmarshal error: %v", err)
+					return
+				}
+				listener(endpoint, ntf.selector, &attr)
+			}()
 		}
 	}()
 }

@@ -10,7 +10,11 @@ import (
 )
 
 var (
-	// 某个计数器指标
+	requestTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "request_total",
+		Help: "The total number of requests",
+	}, []string{"pod", "uri"})
+
 	addPodTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "add_pod_total",
 		Help: "The total number of pods added",
@@ -55,6 +59,11 @@ func Init() {
 	http.Handle("/metrics", promhttp.Handler())
 	logger.Info("metrics server started at :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+func IncRequestTotal(pod string, uri string) {
+	requestTotal.WithLabelValues(pod, uri).Inc()
+
 }
 
 func IncAddPodTotal(service string, pod string) {
