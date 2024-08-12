@@ -136,7 +136,7 @@ func (y *yaprResolver) Endpoints(router *core.Router) []resolver.Endpoint {
 		}
 		//if len(addrs) == 0 {
 		//	addrs = append(addrs, resolver.Address{
-		//		Addr: fmt.Sprintf("%s:%d", service.Name, selector.Port),
+		//		Addr: fmt.Sprintf("%s:%d", service.name, selector.Port),
 		//	})
 		//}
 		endpoints = append(endpoints, resolver.Endpoint{

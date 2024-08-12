@@ -16,8 +16,8 @@ type Store interface {
 	RegisterService(service string, endpoints []*types.Endpoint) (chan struct{}, error)
 	UnregisterService(service string) error
 	//RegisterServiceChangeListener(listener func(service string, isPut bool, pod string, endpoints []*types.Endpoint))
-	SetEndpointAttribute(endpoint *types.Endpoint, selector string, attribute *types.Attribute) error
-	//RegisterAttributeChangeListener(listener func(endpoint *types.Endpoint, selector string, attribute *types.Attribute))
+	SetEndpointAttribute(endpoint *types.Endpoint, selector string, attribute *types.AttributeInSelector) error
+	//RegisterAttributeChangeListener(listener func(endpoint *types.Endpoint, selector string, attribute *types.AttributeInSelector))
 
 	SetCustomRoute(selectorName, headerValue string, endpoint *types.Endpoint, timeout int64, ignoreExisting bool) (bool, *types.Endpoint, error)
 	GetCustomRoute(selectorName, headerValue string) (*types.Endpoint, error)

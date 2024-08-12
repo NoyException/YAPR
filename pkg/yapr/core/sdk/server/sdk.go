@@ -4,7 +4,6 @@ import (
 	"context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-	"math"
 	"noy/router/pkg/yapr/core"
 	"noy/router/pkg/yapr/core/config"
 	"noy/router/pkg/yapr/core/errcode"
@@ -14,17 +13,21 @@ import (
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 var yaprSDK *YaprSDK
 
 type YaprSDK struct {
+	pod                string
 	endpoints          map[types.Endpoint]struct{} // 本地服务端的所有Endpoint
 	endpointsByService map[string][]*types.Endpoint
-	routingTable       RoutingTable // 与本地服务端的Endpoint有关的路由表
-	pod                string
 
-	mu sync.RWMutex
+	routingTable   RoutingTable // 与本地服务端的Endpoint有关的路由表
+	routingTableMu sync.RWMutex
+
+	requestCounter sync.Map // selector_endpoint -> atomic.Uint32
 
 	migrationListener func(selectorName, headerValue string, from, to *types.Endpoint)
 	cancel            store.CancelFunc
@@ -51,29 +54,9 @@ func Init(configPath, pod string) *YaprSDK {
 		routingTable:       NewRoutingTable(),
 		pod:                pod,
 
-		mu: sync.RWMutex{},
+		routingTableMu: sync.RWMutex{},
 
-		cancel: st.RegisterMigrationListener(func(selectorName, headerValue string, from, to *types.Endpoint) {
-			if from.Equal(to) {
-				return
-			}
-			relative := false
-
-			yaprSDK.mu.Lock()
-			if _, ok := yaprSDK.endpoints[*from]; ok {
-				relative = true
-				yaprSDK.routingTable.DeleteRoute(selectorName, headerValue)
-			}
-			if _, ok := yaprSDK.endpoints[*to]; ok {
-				relative = true
-				yaprSDK.routingTable.AddRoute(selectorName, headerValue, to)
-			}
-			yaprSDK.mu.Unlock()
-
-			if relative && yaprSDK.migrationListener != nil {
-				yaprSDK.migrationListener(selectorName, headerValue, from, to)
-			}
-		}),
+		cancel: st.RegisterMigrationListener(yaprSDK.onMigration),
 	}
 	return yaprSDK
 }
@@ -102,6 +85,32 @@ func MustInstance() *YaprSDK {
 //	return nil, core.ErrNoEndpointAvailable
 //}
 
+func (y *YaprSDK) onMigration(selectorName, headerValue string, from, to *types.Endpoint) {
+	if types.EqualEndpoints(from, to) {
+		return
+	}
+	relative := false
+
+	y.routingTableMu.Lock()
+	if from != nil {
+		if _, ok := y.endpoints[*from]; ok {
+			relative = true
+			y.routingTable.DeleteRoute(selectorName, headerValue)
+		}
+	}
+	if to != nil {
+		if _, ok := y.endpoints[*to]; ok && !types.EqualEndpoints(to, y.routingTable.GetRoute(selectorName, headerValue)) {
+			relative = true
+			y.routingTable.AddRoute(selectorName, headerValue, to)
+		}
+	}
+	y.routingTableMu.Unlock()
+
+	if relative && y.migrationListener != nil {
+		y.migrationListener(selectorName, headerValue, from, to)
+	}
+}
+
 func (y *YaprSDK) GRPCServerInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 	// 从ctx中获取路由信息selectorName, headerValue
 	md, exists := metadata.FromIncomingContext(ctx)
@@ -114,35 +123,41 @@ func (y *YaprSDK) GRPCServerInterceptor(ctx context.Context, req any, info *grpc
 		logger.Errorf("strategy not found")
 		return nil, errcode.ErrInvalidMetadata
 	}
-	var err error
-	if strategy[0] == "direct" {
-		selectorName := md.Get("yapr-selector")[0]
+	selectorName := md.Get("yapr-selector")[0]
+	rawEndpoint := md.Get("yapr-endpoint")[0]
+	endpoint := types.EndpointFromString(rawEndpoint)
+
+	switch strategy[0] {
+	case types.StrategyDirect:
 		headerValue := md.Get("yapr-header-value")[0]
 
-		y.mu.RLock()
-		endpoint := y.routingTable.GetRoute(selectorName, headerValue)
-		y.mu.RUnlock()
+		y.routingTableMu.RLock()
+		expectEndpoint := y.routingTable.GetRoute(selectorName, headerValue)
+		y.routingTableMu.RUnlock()
 
-		if endpoint == nil {
-			endpoint, err = store.MustStore().GetCustomRoute(selectorName, headerValue)
-			if err != nil {
-				logger.Errorf("route not found")
-				return nil, errcode.WithData(errcode.ErrWrongEndpoint, map[string]string{
-					"selectorName": selectorName,
-					"headerValue":  headerValue,
-				}).ToGRPCError()
-			}
-			y.mu.Lock()
-			y.routingTable.AddRoute(selectorName, headerValue, endpoint)
-			y.mu.Unlock()
-		}
-		if _, ok := y.endpoints[*endpoint]; !ok {
-			logger.Errorf("endpoint not found")
+		if _, ok := y.endpoints[*endpoint]; !ok || !types.EqualEndpoints(endpoint, expectEndpoint) {
+			logger.Errorf("wrong endpoint: %v", endpoint)
 			return nil, errcode.WithData(errcode.ErrWrongEndpoint, map[string]string{
 				"selectorName": selectorName,
 				"headerValue":  headerValue,
-				"endpoint":     endpoint.String(),
+				"endpoint":     rawEndpoint,
 			}).ToGRPCError()
+		}
+	case types.StrategyLeastRequest:
+		key := selectorName + "_" + rawEndpoint
+		actual, loaded := y.requestCounter.LoadOrStore(key, &atomic.Uint32{})
+		counter := actual.(*atomic.Uint32)
+		counter.Add(1)
+		if loaded {
+			go func() {
+				<-time.After(time.Second)
+				y.requestCounter.Delete(key)
+				err := y.ReportCost(endpoint, selectorName, counter.Load())
+				logger.Debugf("report cost: %v->%v", key, counter.Load())
+				if err != nil {
+					logger.Errorf("report cost failed: %v", err)
+				}
+			}()
 		}
 	}
 	return handler(ctx, req)
@@ -176,14 +191,14 @@ func (y *YaprSDK) UnregisterService(serviceName string) error {
 }
 
 // SetEndpointAttribute 设置服务端某Endpoint属性
-func (y *YaprSDK) SetEndpointAttribute(endpoint *types.Endpoint, selector string, attribute *types.Attribute) error {
+func (y *YaprSDK) SetEndpointAttribute(endpoint *types.Endpoint, selector string, attribute *types.AttributeInSelector) error {
 	return store.MustStore().SetEndpointAttribute(endpoint, selector, attribute)
 }
 
-// ReportCost 上报服务端某Endpoint的开销，仅限least_cost路由策略使用
+// ReportCost 上报服务端某Endpoint的开销，仅限least_cost/least_request路由策略使用
 func (y *YaprSDK) ReportCost(endpoint *types.Endpoint, selector string, cost uint32) error {
-	return y.SetEndpointAttribute(endpoint, selector, &types.Attribute{
-		Weight: math.MaxUint32 - cost,
+	return y.SetEndpointAttribute(endpoint, selector, &types.AttributeInSelector{
+		Weight: cost,
 	})
 }
 
@@ -194,10 +209,8 @@ func (y *YaprSDK) SetCustomRoute(selectorName, headerValue string, endpoint *typ
 	if err != nil {
 		return false, nil, err
 	}
-	if success && old != nil && !old.Equal(endpoint) {
-		y.mu.Lock()
-		y.routingTable.AddRoute(selectorName, headerValue, endpoint)
-		y.mu.Unlock()
+	if success && old != nil && !types.EqualEndpoints(old, endpoint) {
+		y.onMigration(selectorName, headerValue, old, endpoint)
 		if err := st.NotifyMigration(selectorName, headerValue, old, endpoint); err != nil {
 			logger.Errorf("notify migration failed: %v", err)
 		}

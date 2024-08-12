@@ -6,14 +6,13 @@ import (
 )
 
 type Service struct {
-	Name           string                   `yaml:"name" json:"name,omitempty"`          // #唯一名称
-	AttrMap        map[Endpoint]*Attributes `yaml:"-" json:"attr_map,omitempty"`         // *每个endpoint和他的属性
-	EndpointsByPod map[string][]*Endpoint   `yaml:"-" json:"endpoints_by_pod,omitempty"` // *每个pod对应的endpoints
+	name           string                   // #唯一名称
+	endpoints      []*Endpoint              // 所有的endpoints
+	endpointsSet   map[Endpoint]struct{}    // 所有的endpoints
+	endpointsByPod map[string][]*Endpoint   // *每个pod对应的endpoints
+	attrMap        map[Endpoint]*Attributes // *每个endpoint和他的属性
 
-	dirty        bool                  // 是否需要更新endpoints
-	endpoints    []*Endpoint           // 所有的endpoints
-	endpointsSet map[Endpoint]struct{} // 所有的endpoints
-	attributes   []*Attributes         // 所有的属性，idx和endpoints对应
+	dirty bool // 是否需要更新endpoints
 
 	mu      sync.RWMutex
 	version uint64 // 版本号
@@ -23,9 +22,10 @@ type Service struct {
 
 func NewService(name string) *Service {
 	return &Service{
-		Name:           name,
-		AttrMap:        make(map[Endpoint]*Attributes),
-		EndpointsByPod: make(map[string][]*Endpoint),
+		name:           name,
+		endpointsSet:   make(map[Endpoint]struct{}),
+		endpointsByPod: make(map[string][]*Endpoint),
+		attrMap:        make(map[Endpoint]*Attributes),
 
 		mu: sync.RWMutex{},
 
@@ -44,17 +44,6 @@ func (s *Service) update() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	endpoints := make([]*Endpoint, 0)
-	endpointsSet := make(map[Endpoint]struct{})
-	attributes := make([]*Attributes, 0)
-	for endpoint, attr := range s.AttrMap {
-		endpoints = append(endpoints, &endpoint)
-		endpointsSet[endpoint] = struct{}{}
-		attributes = append(attributes, attr)
-	}
-	s.endpoints = endpoints
-	s.endpointsSet = endpointsSet
-	s.attributes = attributes
 	s.dirty = false
 	s.version++
 
@@ -77,45 +66,73 @@ func (s *Service) EndpointsSet() map[Endpoint]struct{} {
 	return s.endpointsSet
 }
 
-func NewDefaultAttr() *Attribute {
-	return &Attribute{
+func NewDefaultAttr() *AttributeInSelector {
+	return &AttributeInSelector{
 		Weight:   1,
 		Deadline: 0,
 	}
 }
 
-func (s *Service) AttributesInSelector(selector string) ([]*Endpoint, []*Attribute) {
+func (s *Service) GetAttribute(endpoint *Endpoint, selector string) *Attribute {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	m, ok := s.attrMap[*endpoint]
+	if !ok {
+		return nil
+	}
+	return &Attribute{
+		CommonAttribute:     m.CommonAttribute,
+		AttributeInSelector: m.InSelector[selector],
+	}
+}
+
+func (s *Service) Attributes(selector string) ([]*Endpoint, []*Attribute) {
 	if s.dirty {
 		s.update()
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	attrs := make([]*Attribute, 0)
-	for _, attrMap := range s.attributes {
-		if attr, ok := attrMap.InSelector[selector]; ok {
-			attrs = append(attrs, attr)
+	attrs := make([]*Attribute, 0, len(s.endpoints))
+	for _, a := range s.endpoints {
+		attr, ok := s.attrMap[*a]
+		if ok {
+			inSelector, ok := attr.InSelector[selector]
+			if !ok {
+				inSelector = NewDefaultAttr()
+			}
+			attrs = append(attrs, &Attribute{
+				CommonAttribute:     attr.CommonAttribute,
+				AttributeInSelector: inSelector,
+			})
 		} else {
-			attr := NewDefaultAttr()
-			attrMap.InSelector[selector] = attr
-			attrs = append(attrs, attr)
+			attrs = append(attrs, &Attribute{
+				CommonAttribute:     &CommonAttribute{Available: false},
+				AttributeInSelector: NewDefaultAttr(),
+			})
 		}
 	}
 	return s.endpoints, attrs
 }
 
-// SetAttribute 设置endpoint的属性，需要调用方保证endpoint已经存在才能调用
-func (s *Service) SetAttribute(endpoint *Endpoint, selector string, attr *Attribute) {
+// SetAttributeInSelector 设置endpoint的属性，需要调用方保证endpoint已经存在才能调用
+func (s *Service) SetAttributeInSelector(endpoint *Endpoint, selector string, attr *AttributeInSelector) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	m, ok := s.AttrMap[*endpoint]
+	_, ok := s.endpointsSet[*endpoint]
+	if !ok {
+		return
+	}
+
+	m, ok := s.attrMap[*endpoint]
 	if !ok {
 		m = &Attributes{
-			Available:  true,
-			InSelector: make(map[string]*Attribute),
+			CommonAttribute: &CommonAttribute{Available: true},
+			InSelector:      make(map[string]*AttributeInSelector),
 		}
-		s.AttrMap[*endpoint] = m
+		s.attrMap[*endpoint] = m
 	}
 	m.InSelector[selector] = attr
 	s.setDirty()
@@ -125,22 +142,11 @@ func (s *Service) IsAvailable(endpoint *Endpoint) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	m, ok := s.AttrMap[*endpoint]
+	m, ok := s.attrMap[*endpoint]
 	if !ok {
 		return false
 	}
 	return m.Available
-}
-
-func (s *Service) GetAttribute(endpoint *Endpoint, selector string) *Attribute {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	m, ok := s.AttrMap[*endpoint]
-	if !ok {
-		return nil
-	}
-	return m.InSelector[selector]
 }
 
 func (s *Service) Version() uint64 {
@@ -155,19 +161,21 @@ func (s *Service) RegisterPod(pod string, endpoints []*Endpoint) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if oldEndpoints, ok := s.EndpointsByPod[pod]; ok {
+	if oldEndpoints, ok := s.endpointsByPod[pod]; ok {
 		for _, endpoint := range oldEndpoints {
-			delete(s.AttrMap, *endpoint)
+			delete(s.attrMap, *endpoint)
 		}
 	}
 
 	for _, endpoint := range endpoints {
-		s.AttrMap[*endpoint] = &Attributes{
-			Available:  true,
-			InSelector: make(map[string]*Attribute),
+		s.attrMap[*endpoint] = &Attributes{
+			CommonAttribute: &CommonAttribute{Available: true},
+			InSelector:      make(map[string]*AttributeInSelector),
 		}
+		s.endpointsSet[*endpoint] = struct{}{}
+		s.endpoints = append(s.endpoints, endpoint)
 	}
-	s.EndpointsByPod[pod] = endpoints
+	s.endpointsByPod[pod] = endpoints
 	s.setDirty()
 }
 
@@ -176,12 +184,17 @@ func (s *Service) RemovePod(pod string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	endpoints := s.EndpointsByPod[pod]
+	endpoints := s.endpointsByPod[pod]
 	for _, endpoint := range endpoints {
-		logger.Debugf("delete endpoint: %v in service %v", endpoint, s.Name)
-		delete(s.AttrMap, *endpoint)
+		logger.Debugf("delete endpoint: %v in service %v", endpoint, s.name)
+		delete(s.attrMap, *endpoint)
+		delete(s.endpointsSet, *endpoint)
 	}
-	delete(s.EndpointsByPod, pod)
+	s.endpoints = make([]*Endpoint, 0, len(s.endpointsSet))
+	for endpoint := range s.endpointsSet {
+		s.endpoints = append(s.endpoints, &endpoint)
+	}
+	delete(s.endpointsByPod, pod)
 	s.setDirty()
 }
 
@@ -190,9 +203,9 @@ func (s *Service) HangPod(pod string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	endpoints := s.EndpointsByPod[pod]
+	endpoints := s.endpointsByPod[pod]
 	for _, endpoint := range endpoints {
-		if attr, ok := s.AttrMap[*endpoint]; ok {
+		if attr, ok := s.attrMap[*endpoint]; ok {
 			attr.Available = false
 		}
 	}

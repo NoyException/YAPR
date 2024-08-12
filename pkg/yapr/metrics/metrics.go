@@ -39,7 +39,7 @@ var (
 	}, []string{})
 
 	//balancerDuration = promauto.NewSummaryVec(prometheus.SummaryOpts{
-	//	Name:       "balancer_duration",
+	//	name:       "balancer_duration",
 	//	Help:       "The duration of balancer",
 	//	Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 	//}, []string{})

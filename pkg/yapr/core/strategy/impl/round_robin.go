@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"math/rand/v2"
 	"noy/router/pkg/yapr/core/errcode"
 	"noy/router/pkg/yapr/core/strategy"
 	"noy/router/pkg/yapr/core/types"
@@ -18,16 +19,24 @@ type RoundRobinStrategy struct {
 }
 
 func (r *RoundRobinStrategy) Select(_ *types.MatchTarget) (*types.Endpoint, map[string]string, error) {
-	if len(r.endpoints) == 0 {
+	size := len(r.endpoints)
+	if size == 0 {
 		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
-	r.lastIdx = (r.lastIdx + 1) % uint32(len(r.endpoints))
+	r.lastIdx = (r.lastIdx + 1) % uint32(size)
 	return r.endpoints[r.lastIdx], nil, nil
 }
 
 func (r *RoundRobinStrategy) Update(endpoints map[types.Endpoint]*types.Attribute) {
-	r.endpoints = make([]*types.Endpoint, 0, len(endpoints))
-	for endpoint := range endpoints {
+	size := len(endpoints)
+	r.endpoints = make([]*types.Endpoint, 0, size)
+	for endpoint, attr := range endpoints {
+		if !attr.IsGood() {
+			continue
+		}
 		r.endpoints = append(r.endpoints, &endpoint)
+	}
+	if len(r.endpoints) > 0 {
+		r.lastIdx = uint32(rand.IntN(len(r.endpoints)))
 	}
 }

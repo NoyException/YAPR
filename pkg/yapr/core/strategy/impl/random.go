@@ -18,15 +18,19 @@ type RandomStrategy struct {
 }
 
 func (r *RandomStrategy) Select(_ *types.MatchTarget) (*types.Endpoint, map[string]string, error) {
-	if len(r.endpoints) == 0 {
+	size := len(r.endpoints)
+	if size == 0 {
 		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
-	return r.endpoints[rand.IntN(len(r.endpoints))], nil, nil
+	return r.endpoints[rand.IntN(size)], nil, nil
 }
 
 func (r *RandomStrategy) Update(endpoints map[types.Endpoint]*types.Attribute) {
 	r.endpoints = make([]*types.Endpoint, 0, len(endpoints))
-	for endpoint := range endpoints {
+	for endpoint, attr := range endpoints {
+		if !attr.IsGood() {
+			continue
+		}
 		r.endpoints = append(r.endpoints, &endpoint)
 	}
 }

@@ -98,4 +98,5 @@ var (
 	ErrMaxRetries               = New(1020, "max retries")
 	ErrUnknownStrategy          = New(1021, "unknown strategy")
 	ErrServiceAlreadyRegistered = New(1022, "service already registered")
+	ErrBlockTimeout             = New(1023, "block timeout")
 )

@@ -208,38 +208,31 @@ func (s *Impl) GetServices() (map[string]*types.Service, error) {
 			service = types.NewService(name)
 			services[name] = service
 			// 监听服务的属性变化
-			s.RegisterAttributeChangeListener(func(endpoint *types.Endpoint, selector string, attribute *types.Attribute) {
-				service.SetAttribute(endpoint, selector, attribute)
+			s.RegisterAttributeChangeListener(func(endpoint *types.Endpoint, selector string, attribute *types.AttributeInSelector) {
+				service.SetAttributeInSelector(endpoint, selector, attribute)
 			})
-			// 获取服务的所有属性
-			response, err = s.etcdClient.Get(ctx, "attr/", clientv3.WithPrefix())
-			if err != nil {
-				return nil, err
-			}
-			for _, kv := range response.Kvs {
-				var attr types.Attribute
-				err = json.Unmarshal(kv.Value, &attr)
-				if err != nil {
-					logger.Warnf("unmarshal attribute error: %v", err)
-					return nil, err
-				}
-				splits := strings.Split(string(kv.Key), "/")
-				if len(splits) != 3 {
-					logger.Warnf("invalid key: %s", kv.Key)
-					continue
-				}
-				selector := splits[1]
-				endpoint := types.EndpointFromString(splits[2])
-				service.SetAttribute(endpoint, selector, &attr)
-			}
 		}
 		// 获取服务在某个pod下的所有节点
 		var endpoints []*types.Endpoint
 		err = json.Unmarshal(kv.Value, &endpoints)
 		if err != nil {
-			return nil, err
+			logger.Warnf("unmarshal endpoints error: %v", err)
+			continue
 		}
 		service.RegisterPod(id, endpoints)
+		// 获取所有节点的属性
+		for _, endpoint := range endpoints {
+			res, err := s.redisClient.HGetAll(ctx, "_attr_"+endpoint.String()).Result()
+			if err != nil {
+				logger.Warnf("get attribute error: %v", err)
+				continue
+			}
+			for selector, rawAttr := range res {
+				var attr types.AttributeInSelector
+				err = json.Unmarshal([]byte(rawAttr), &attr)
+				service.SetAttributeInSelector(endpoint, selector, &attr)
+			}
+		}
 	}
 
 	// 监听服务的节点变化
@@ -380,38 +373,44 @@ func (s *Impl) RegisterServiceChangeListener(listener func(service string, chang
 	}()
 }
 
-func (s *Impl) SetEndpointAttribute(endpoint *types.Endpoint, selector string, attribute *types.Attribute) error {
-	key := "attr/" + selector + "/" + endpoint.String()
+func (s *Impl) SetEndpointAttribute(endpoint *types.Endpoint, selector string, attribute *types.AttributeInSelector) error {
 	bytes, err := json.Marshal(attribute)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_, err = s.etcdClient.Put(ctx, key, string(bytes))
+	_, err = s.redisClient.HSet(context.Background(), "_attr_"+endpoint.String(), selector, string(bytes)).Result()
+	// 通知服务的属性变化
+	s.redisClient.Publish(context.Background(), "_attr_change", selector+" "+endpoint.String())
 	return err
 }
 
-func (s *Impl) RegisterAttributeChangeListener(listener func(endpoint *types.Endpoint, selector string, attribute *types.Attribute)) {
+func (s *Impl) RegisterAttributeChangeListener(listener func(endpoint *types.Endpoint, selector string, attribute *types.AttributeInSelector)) {
 	go func() {
-		watchChan := s.etcdClient.Watch(context.Background(), "attr/", clientv3.WithPrefix())
-		for watchResp := range watchChan {
-			for _, event := range watchResp.Events {
-				attribute := &types.Attribute{}
-				err := json.Unmarshal(event.Kv.Value, attribute)
-				if err != nil {
-					logger.Warnf("unmarshal attribute error: %v", err)
-					continue
-				}
-				splits := strings.Split(string(event.Kv.Key), "/")
-				if len(splits) != 3 {
-					logger.Warnf("invalid key: %s", event.Kv.Key)
-					continue
-				}
-				selector := splits[1]
-				endpoint := types.EndpointFromString(splits[2])
-				listener(endpoint, selector, attribute)
+		pubsub := s.redisClient.Subscribe(context.Background(), "_attr_change")
+		defer func() {
+			_ = pubsub.Close()
+		}()
+		for {
+			msg := <-pubsub.Channel()
+			splits := strings.Split(msg.Payload, " ")
+			if len(splits) != 2 {
+				logger.Warnf("invalid message: %s", msg.Payload)
+				continue
 			}
+			selector := splits[0]
+			endpoint := splits[1]
+			res, err := s.redisClient.HGet(context.Background(), "_attr_"+endpoint, selector).Result()
+			if err != nil {
+				logger.Warnf("get attribute error: %v", err)
+				continue
+			}
+			var attr types.AttributeInSelector
+			err = json.Unmarshal([]byte(res), &attr)
+			if err != nil {
+				logger.Warnf("unmarshal attribute error: %v", err)
+				continue
+			}
+			listener(types.EndpointFromString(endpoint), selector, &attr)
 		}
 	}()
 }

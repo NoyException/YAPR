@@ -24,11 +24,17 @@ func (r *WeightedRandomStrategy) Select(_ *types.MatchTarget) (*types.Endpoint, 
 
 	totalWeight := uint32(0)
 	for _, attr := range r.endpoints {
+		if !attr.IsGood() {
+			continue
+		}
 		totalWeight += attr.Weight
 	}
 	rnd := rand.Uint32() % totalWeight
 	totalWeight = 0
 	for endpoint, attr := range r.endpoints {
+		if !attr.IsGood() {
+			continue
+		}
 		totalWeight += attr.Weight
 		if rnd < totalWeight {
 			return &endpoint, nil, nil

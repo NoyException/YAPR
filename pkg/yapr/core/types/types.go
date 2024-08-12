@@ -12,6 +12,7 @@ type MatchTarget struct {
 	Ctx  context.Context // headers
 }
 
+// Endpoint 代表了一个服务的一个Endpoint，请勿直接构造，使用yaprsdk.NewEndpoint或者EndpointFromString
 type Endpoint struct {
 	IP   string  `yaml:"ip" json:"ip,omitempty"`     // ip
 	Pod  string  `yaml:"pod" json:"pod,omitempty"`   // pod
@@ -37,20 +38,43 @@ func EndpointFromString(s string) *Endpoint {
 	return e
 }
 
-func (e *Endpoint) Equal(e2 *Endpoint) bool {
-	return e.IP == e2.IP && e.Port == e2.Port
+func EqualEndpoints(e1, e2 *Endpoint) bool {
+	if e1 == nil && e2 == nil {
+		return true
+	}
+	if e1 == nil || e2 == nil {
+		return false
+	}
+	return e1.IP == e2.IP && e1.Port == e2.Port
 }
 
-// Attributes 代表了一个服务的属性
+// Attributes 代表了一个Endpoint在服务中的所有属性
 type Attributes struct {
-	Available  bool                  `yaml:"available" json:"available,omitempty"`     // 是否可用
-	InSelector map[string]*Attribute `yaml:"in_selector" json:"in_selector,omitempty"` // 在选择器中的属性
+	*CommonAttribute `yaml:"common" json:"common,omitempty"` // 通用属性
+
+	InSelector map[string]*AttributeInSelector `yaml:"in_selector" json:"in_selector,omitempty"` // 在选择器中的属性
 }
 
-// Attribute 代表了一个服务中某个Endpoint的属性
-type Attribute struct {
+// CommonAttribute 代表了一个Endpoint的通用属性
+type CommonAttribute struct {
+	Available bool `yaml:"available" json:"available,omitempty"` // 是否可用
+	Fused     bool `yaml:"fused" json:"fused,omitempty"`         // 是否熔断
+}
+
+func (c *CommonAttribute) IsGood() bool {
+	return c.Available && !c.Fused
+}
+
+// AttributeInSelector 代表了一个Endpoint在选择器中的属性
+type AttributeInSelector struct {
 	Weight   uint32 `yaml:"weight" json:"weight,omitempty"`     // 权重，默认为1
 	Deadline int64  `yaml:"deadline" json:"deadline,omitempty"` // 截止时间，单位毫秒，0表示永久，-1表示已过期
+}
+
+// Attribute 代表了一个Endpoint在选择器中的属性，同时附带了通用属性
+type Attribute struct {
+	*CommonAttribute
+	*AttributeInSelector
 }
 
 type BufferType string
@@ -70,12 +94,25 @@ const (
 	RuleErrorEndpointUnavailable = RuleError("unavailable")
 )
 
-type ErrorHandler string
+type Solution string
 
 const (
-	HandlerPass  = ErrorHandler("pass")
-	HandlerBlock = ErrorHandler("block")
+	SolutionDefault = Solution("default")
+	SolutionRetry   = Solution("retry")
+	SolutionPass    = Solution("pass")
+	SolutionBlock   = Solution("block")
+	SolutionThrow   = Solution("throw")
+	SolutionPanic   = Solution("panic")
 )
+
+type ErrorHandler struct {
+	Solution Solution `yaml:"solution" json:"solution,omitempty"` // #错误处理方案
+	Times    *uint32  `yaml:"times" json:"times,omitempty"`       // #重试次数
+	Interval *float32 `yaml:"interval" json:"interval,omitempty"` // #重试间隔，单位秒
+	Timeout  *float32 `yaml:"timeout" json:"timeout,omitempty"`   // #超时时间，单位秒
+	Message  *string  `yaml:"message" json:"message,omitempty"`   // #错误信息
+	Code     *uint32  `yaml:"code" json:"code,omitempty"`         // #错误码
+}
 
 type Matcher struct {
 	URI     string            `yaml:"uri" json:"uri,omitempty"`         // #方法名regex
@@ -85,9 +122,9 @@ type Matcher struct {
 
 // Rule 代表了一条路由规则，包含了匹配规则和目的地服务网格
 type Rule struct {
-	Matchers     []*Matcher                  `yaml:"matchers" json:"matchers,omitempty"`           // #匹配规则，满足任意一个规则则匹配成功
-	Selector     string                      `yaml:"selector" json:"selector,omitempty"`           // #路由目的地选择器
-	ErrorHandler map[RuleError]*ErrorHandler `yaml:"error_handler" json:"error_handler,omitempty"` // #错误处理
+	Matchers []*Matcher                  `yaml:"matchers" json:"matchers,omitempty"` // #匹配规则，满足任意一个规则则匹配成功
+	Selector string                      `yaml:"selector" json:"selector,omitempty"` // #路由目的地选择器
+	Catch    map[RuleError]*ErrorHandler `yaml:"catch" json:"catch,omitempty"`       // #错误处理
 }
 
 // Router 代表了一个服务网格的所有路由规则
@@ -102,7 +139,8 @@ const (
 	StrategyRoundRobin         = "round_robin"          // 轮询
 	StrategyWeightedRandom     = "weighted_random"      // 加权随机
 	StrategyWeightedRoundRobin = "weighted_round_robin" // 加权轮询
-	StrategyLeastCost          = "least_cost"           // 最少开销，开销越高权重越低
+	StrategyLeastRequest       = "least_request"        // 最少请求，请求越多权重越低
+	StrategyLeastCost          = "least_cost"           // 最少开销，开销越高权重越低（与最少请求类似，但是要由用户自己计算开销并上报）
 	StrategyHashRing           = "hash_ring"            // 哈希环法
 	StrategyDirect             = "direct"               // 指定目标路由
 	StrategyCustomLua          = "custom_lua"           // 自定义

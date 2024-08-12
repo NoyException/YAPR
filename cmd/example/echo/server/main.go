@@ -96,7 +96,7 @@ func main() {
 	//
 	//for _, endpoint := range endpoints {
 	//	time.Sleep(1 * time.Millisecond)
-	//	err := sdk.SetEndpointAttribute(endpoint, "echo-rr", &types.Attribute{
+	//	err := sdk.SetEndpointAttribute(endpoint, "echo-rr", &types.AttributeInSelector{
 	//		Weight: uint32(*weight),
 	//	})
 	//	if err != nil {
@@ -127,6 +127,10 @@ func main() {
 			panic(err)
 		}
 		<-ch
+		err = sdk.UnregisterService("echosvr")
+		if err != nil {
+			logger.Errorf("unregister service error: %v", err)
+		}
 		logger.Warnf("failed to keep alive, retry")
 	}
 

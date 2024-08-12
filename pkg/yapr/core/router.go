@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Router 代表了一个服务网格的所有路由规则
@@ -96,15 +97,15 @@ func (r *Router) Route(target *types.MatchTarget) (string, *types.Endpoint, uint
 		if selectErr != nil {
 			var handler *types.ErrorHandler
 			if errors.Is(selectErr, errcode.ErrNoEndpointAvailable) || errors.Is(selectErr, errcode.ErrNoCustomRoute) {
-				if h, ok := rule.ErrorHandler[types.RuleErrorNoEndpoint]; ok {
+				if h, ok := rule.Catch[types.RuleErrorNoEndpoint]; ok {
 					handler = h
 				}
 			} else if errors.Is(selectErr, errcode.ErrEndpointUnavailable) {
-				if h, ok := rule.ErrorHandler[types.RuleErrorEndpointUnavailable]; ok {
+				if h, ok := rule.Catch[types.RuleErrorEndpointUnavailable]; ok {
 					handler = h
 				}
 			} else {
-				if h, ok := rule.ErrorHandler[types.RuleErrorDefault]; ok {
+				if h, ok := rule.Catch[types.RuleErrorDefault]; ok {
 					handler = h
 				}
 			}
@@ -114,25 +115,78 @@ func (r *Router) Route(target *types.MatchTarget) (string, *types.Endpoint, uint
 				return "", nil, 0, nil, selectErr
 			}
 
-			switch *handler {
-			case types.HandlerPass:
+			switch handler.Solution {
+			case types.SolutionPass:
 				logger.Infof("selector %s select failed: %v, move to the next rule", rule.Selector, selectErr)
 				continue
-			case types.HandlerBlock:
+			case types.SolutionThrow:
+				if handler.Code != nil || handler.Message != nil {
+					code := 0
+					if handler.Code != nil {
+						code = int(*handler.Code)
+					}
+					message := ""
+					if handler.Message != nil {
+						message = *handler.Message
+					}
+					return "", nil, 0, nil, errcode.New(code, message)
+				}
+				return "", nil, 0, nil, selectErr
+			case types.SolutionPanic:
+				if handler.Code != nil || handler.Message != nil {
+					code := 0
+					if handler.Code != nil {
+						code = int(*handler.Code)
+					}
+					message := ""
+					if handler.Message != nil {
+						message = *handler.Message
+					}
+					panic(errcode.New(code, message))
+				}
+				panic(selectErr)
+			case types.SolutionRetry:
+				times := 3
+				if handler.Times != nil {
+					times = int(*handler.Times)
+				} else {
+					logger.Warnf("retry times not set, use default 3")
+				}
+				interval := float32(1)
+				if handler.Interval != nil {
+					interval = *handler.Interval
+				} else {
+					logger.Warnf("retry interval not set, use default 1")
+				}
+				for i := 0; i < times; i++ {
+					after := time.After(time.Duration(interval*1000) * time.Millisecond)
+					<-after
+					endpoint, headers, selectErr = selector.Select(target)
+					if selectErr == nil {
+						break
+					}
+					logger.Warnf("retry %d times, selector %s select failed: %v", i+1, rule.Selector, selectErr)
+				}
+			case types.SolutionBlock:
 				logger.Errorf("selector %s select failed: %v, block the request", rule.Selector, selectErr)
 				service, err := GetService(selector.Service)
 				if err != nil {
 					logger.Warnf("service %s not found", selector.Service)
 					continue
 				}
-				if _, ok := target.Ctx.Deadline(); !ok {
-					logger.Warnf("context deadline not set")
+				timeout := float32(5)
+				if handler.Timeout != nil {
+					timeout = *handler.Timeout
 				}
+				after := time.After(time.Duration(timeout*1000) * time.Millisecond)
+
 				flag := true
 				for flag {
 					select {
 					case <-target.Ctx.Done():
 						return "", nil, 0, nil, errcode.ErrContextCanceled
+					case <-after:
+						return "", nil, 0, nil, errcode.ErrBlockTimeout
 					case <-service.UpdateNTF:
 						if endpoint == nil {
 							break
@@ -148,6 +202,7 @@ func (r *Router) Route(target *types.MatchTarget) (string, *types.Endpoint, uint
 
 		if headers != nil {
 			headers["yapr-router"] = r.Name
+			headers["yapr-endpoint"] = endpoint.String()
 		}
 		port := selector.Port
 		if endpoint.Port != nil {

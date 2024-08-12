@@ -14,6 +14,7 @@ import (
 	"noy/router/pkg/yapr/core/strategy/impl"
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
+	"time"
 )
 
 var yaprSDK *YaprSDK
@@ -41,6 +42,7 @@ func Init(configPath string) *YaprSDK {
 	core.RegisterStrategyBuilder(types.StrategyRoundRobin, &builtin.RoundRobinStrategyBuilder{})
 	core.RegisterStrategyBuilder(types.StrategyWeightedRandom, &builtin.WeightedRandomStrategyBuilder{})
 	core.RegisterStrategyBuilder(types.StrategyWeightedRoundRobin, &builtin.WeightedRoundRobinStrategyBuilder{})
+	core.RegisterStrategyBuilder(types.StrategyLeastRequest, &builtin.LeastCostStrategyBuilder{}) // LeastRequest 与 LeastCost 共用一个 builder
 	core.RegisterStrategyBuilder(types.StrategyLeastCost, &builtin.LeastCostStrategyBuilder{})
 	core.RegisterStrategyBuilder(types.StrategyHashRing, &builtin.HashRingStrategyBuilder{})
 	core.RegisterStrategyBuilder(types.StrategyDirect, &builtin.DirectStrategyBuilder{})
@@ -81,6 +83,14 @@ func (y *YaprSDK) GRPCClientInterceptor(
 		}
 
 		logger.Warnf("wrong endpoint: %v", err)
+
+		switch i {
+		case 1:
+			time.Sleep(100 * time.Millisecond)
+		case 2:
+			time.Sleep(500 * time.Millisecond)
+		}
+
 		// 使缓存失效
 		selectorName := errWithCode.Data["selectorName"]
 		headerValue := errWithCode.Data["headerValue"]
@@ -91,7 +101,6 @@ func (y *YaprSDK) GRPCClientInterceptor(
 			return err
 		}
 		selector.NotifyRetry(headerValue)
-
 		logger.Debugf("retry %d times", i+1)
 	}
 	return errcode.ErrMaxRetries
@@ -104,7 +113,7 @@ func (y *YaprSDK) SetCustomRoute(selectorName, headerValue string, endpoint *typ
 	if err != nil {
 		return false, nil, err
 	}
-	if success && old != nil && !old.Equal(endpoint) {
+	if success && old != nil && !types.EqualEndpoints(old, endpoint) {
 		if err := st.NotifyMigration(selectorName, headerValue, old, endpoint); err != nil {
 			logger.Errorf("notify migration failed: %v", err)
 		}

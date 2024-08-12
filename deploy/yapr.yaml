@@ -20,10 +20,17 @@ yapr:
         - matchers:
             - uri: ".*/Echo"
               port: 9090
-          selector: "echo-rand"
-          error_handler:
-            no_endpoint: "pass"
-            unavailable: "block"
+          selector: "echo-lr"
+          catch:
+            no_endpoint:
+              solution: "pass"
+            unavailable:
+              solution: "block"
+              timeout: 5.0
+            default:
+              solution: "throw"
+              message: "known error"
+              code: 500
         - matchers:
             - uri: ".*/Echo"
               port: 9090
@@ -53,6 +60,11 @@ yapr:
       service: "echosvr"
       port: 9090
       strategy: "random"
+
+    - name: "echo-lr"
+      service: "echosvr"
+      port: 9090
+      strategy: "least_request"
 
     - name: "shard"
       service: "echosvr"

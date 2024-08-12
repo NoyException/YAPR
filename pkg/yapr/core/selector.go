@@ -63,7 +63,7 @@ func (s *Selector) Endpoints() []*types.Endpoint {
 
 func (s *Selector) EndpointsWithAttribute() map[types.Endpoint]*types.Attribute {
 	result := make(map[types.Endpoint]*types.Attribute)
-	endpoints, attributes := s.MustService().AttributesInSelector(s.Name)
+	endpoints, attributes := s.MustService().Attributes(s.Name)
 	for i := 0; i < len(endpoints); i++ {
 		result[*endpoints[i]] = attributes[i]
 	}
