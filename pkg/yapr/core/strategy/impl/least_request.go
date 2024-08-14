@@ -14,7 +14,7 @@ func (b *LeastRequestStrategyBuilder) Build(s *types.Selector) (strategy.Strateg
 }
 
 type LeastRequestStrategy struct {
-	endpoints  []*types.Endpoint
+	endpoints  []types.Endpoint
 	attributes []*types.Attribute
 }
 
@@ -24,7 +24,7 @@ func (r *LeastRequestStrategy) Select(_ *types.MatchTarget) (*types.Endpoint, ma
 		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
 	if size == 1 {
-		return r.endpoints[0], nil, nil
+		return &r.endpoints[0], nil, nil
 	}
 
 	// 随机选择两个Endpoint，比较其RPS，选择RPS小的
@@ -42,9 +42,9 @@ func (r *LeastRequestStrategy) Select(_ *types.MatchTarget) (*types.Endpoint, ma
 	}
 	//logger.Debugf("rps1: %v, rps2: %v", rps1, rps2)
 	if rps1 < rps2 {
-		return r.endpoints[index1], nil, nil
+		return &r.endpoints[index1], nil, nil
 	} else {
-		return r.endpoints[index2], nil, nil
+		return &r.endpoints[index2], nil, nil
 	}
 }
 
@@ -56,10 +56,10 @@ func (r *LeastRequestStrategy) EndpointFilters() []types.EndpointFilter {
 }
 
 func (r *LeastRequestStrategy) Update(endpoints map[types.Endpoint]*types.Attribute) {
-	r.endpoints = make([]*types.Endpoint, 0, len(endpoints))
+	r.endpoints = make([]types.Endpoint, 0, len(endpoints))
 	r.attributes = make([]*types.Attribute, 0, len(endpoints))
 	for endpoint, attr := range endpoints {
-		r.endpoints = append(r.endpoints, &endpoint)
+		r.endpoints = append(r.endpoints, endpoint)
 		r.attributes = append(r.attributes, attr)
 	}
 }

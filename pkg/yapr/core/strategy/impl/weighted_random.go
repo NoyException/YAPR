@@ -20,13 +20,16 @@ type WeightedRandomStrategy struct {
 }
 
 func (r *WeightedRandomStrategy) Select(_ *types.MatchTarget) (*types.Endpoint, map[string]string, error) {
+	if r.totalWeight == 0 {
+		return nil, nil, errcode.ErrNoEndpointAvailable
+	}
 	rnd := rand.Int() % r.totalWeight
 	_, rawEndpoint := r.weightStageToEndpoint.Floor(rnd)
 	if rawEndpoint == nil {
 		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
-	endpoint := rawEndpoint.(*types.Endpoint)
-	return endpoint, nil, nil
+	endpoint := rawEndpoint.(types.Endpoint)
+	return &endpoint, nil, nil
 }
 
 func (r *WeightedRandomStrategy) EndpointFilters() []types.EndpointFilter {
@@ -44,7 +47,7 @@ func (r *WeightedRandomStrategy) Update(endpoints map[types.Endpoint]*types.Attr
 		if attr.Weight != nil {
 			weight = int(*attr.Weight)
 		}
-		r.weightStageToEndpoint.Put(r.totalWeight, &endpoint)
+		r.weightStageToEndpoint.Put(r.totalWeight, endpoint)
 		r.totalWeight += weight
 	}
 }

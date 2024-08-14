@@ -14,7 +14,7 @@ func (b *RandomStrategyBuilder) Build(s *types.Selector) (strategy.Strategy, err
 }
 
 type RandomStrategy struct {
-	endpoints []*types.Endpoint
+	endpoints []types.Endpoint
 }
 
 func (r *RandomStrategy) Select(_ *types.MatchTarget) (*types.Endpoint, map[string]string, error) {
@@ -22,7 +22,7 @@ func (r *RandomStrategy) Select(_ *types.MatchTarget) (*types.Endpoint, map[stri
 	if size == 0 {
 		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
-	return r.endpoints[rand.Intn(size)], nil, nil
+	return &r.endpoints[rand.Intn(size)], nil, nil
 }
 
 func (r *RandomStrategy) EndpointFilters() []types.EndpointFilter {
@@ -33,8 +33,8 @@ func (r *RandomStrategy) EndpointFilters() []types.EndpointFilter {
 }
 
 func (r *RandomStrategy) Update(endpoints map[types.Endpoint]*types.Attribute) {
-	r.endpoints = make([]*types.Endpoint, 0, len(endpoints))
+	r.endpoints = make([]types.Endpoint, 0, len(endpoints))
 	for endpoint := range endpoints {
-		r.endpoints = append(r.endpoints, &endpoint)
+		r.endpoints = append(r.endpoints, endpoint)
 	}
 }

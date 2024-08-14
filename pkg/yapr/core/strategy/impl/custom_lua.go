@@ -15,7 +15,7 @@ func (b *CustomLuaStrategyBuilder) Build(s *types.Selector) (strategy.Strategy, 
 
 type CustomLuaStrategy struct {
 	script    string
-	endpoints []*types.Endpoint
+	endpoints []types.Endpoint
 }
 
 func (r *CustomLuaStrategy) Select(match *types.MatchTarget) (*types.Endpoint, map[string]string, error) {
@@ -51,7 +51,7 @@ func (r *CustomLuaStrategy) Select(match *types.MatchTarget) (*types.Endpoint, m
 		return nil, nil, errcode.ErrLuaIndexOutOfRange
 	}
 	//TODO: 从lua中获取header
-	return r.endpoints[idx], nil, nil
+	return &r.endpoints[idx], nil, nil
 }
 
 func (r *CustomLuaStrategy) EndpointFilters() []types.EndpointFilter {
@@ -59,8 +59,8 @@ func (r *CustomLuaStrategy) EndpointFilters() []types.EndpointFilter {
 }
 
 func (r *CustomLuaStrategy) Update(endpoints map[types.Endpoint]*types.Attribute) {
-	r.endpoints = make([]*types.Endpoint, 0, len(endpoints))
+	r.endpoints = make([]types.Endpoint, 0, len(endpoints))
 	for endpoint := range endpoints {
-		r.endpoints = append(r.endpoints, &endpoint)
+		r.endpoints = append(r.endpoints, endpoint)
 	}
 }

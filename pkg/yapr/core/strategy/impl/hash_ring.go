@@ -38,7 +38,8 @@ func (r *HashRingStrategy) Select(match *types.MatchTarget) (*types.Endpoint, ma
 			return nil, nil, errcode.ErrNoEndpointAvailable
 		}
 	}
-	return v.(*types.Endpoint), nil, nil
+	endpoint := v.(types.Endpoint)
+	return &endpoint, nil, nil
 }
 
 func (r *HashRingStrategy) EndpointFilters() []types.EndpointFilter {
@@ -55,7 +56,7 @@ func (r *HashRingStrategy) Update(endpoints map[types.Endpoint]*types.Attribute)
 		for i := 0; i < int(weight)*8; i++ {
 			hashCode := int(strategy.HashString(endpoint.String() + strconv.Itoa(i)))
 			//logger.Debugf("hash ring: %d -> %s", hashCode, endpoint.String())
-			r.ring.Put(hashCode, &endpoint)
+			r.ring.Put(hashCode, endpoint)
 		}
 	}
 }
