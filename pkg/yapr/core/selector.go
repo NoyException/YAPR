@@ -102,6 +102,7 @@ func (s *Selector) Select(target *types.MatchTarget) (endpoint *types.Endpoint, 
 	if s.lastVersion < version {
 		s.strategy.Update(s.EndpointsWithAttribute(s.strategy.EndpointFilters()...))
 		s.lastVersion = version
+		metrics.IncUpdateSelectorCnt(s.Strategy)
 	}
 
 	headers = s.baseHeaders()

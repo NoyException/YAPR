@@ -6,7 +6,6 @@ import (
 	"noy/router/pkg/yapr/core/strategy/impl/cache"
 	"noy/router/pkg/yapr/core/strategy/impl/cache/impl"
 	"noy/router/pkg/yapr/core/types"
-	"noy/router/pkg/yapr/logger"
 )
 
 type DirectStrategyBuilder struct{}
@@ -69,7 +68,7 @@ func (r *DirectStrategy) Select(match *types.MatchTarget) (*types.Endpoint, map[
 	if _, ok := r.endpoints[*endpoint]; !ok {
 		return endpoint, headers, errcode.ErrEndpointUnavailable
 	}
-	logger.Debugf("direct select endpoint %v by value %v", endpoint, value)
+	//logger.Debugf("direct select endpoint %v by value %v", endpoint, value)
 	return endpoint, headers, nil
 }
 

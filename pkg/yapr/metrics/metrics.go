@@ -55,6 +55,11 @@ var (
 		Help:       "The duration of selector",
 		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 	}, []string{"strategy"})
+
+	updateSelectorCnt = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "update_selector_cnt",
+		Help: "The total number of selector updated",
+	}, []string{"strategy"})
 )
 
 func Init(port int) {
@@ -65,7 +70,6 @@ func Init(port int) {
 
 func IncRequestTotal(pod string, uri string) {
 	requestTotal.WithLabelValues(pod, uri).Inc()
-
 }
 
 func IncAddPodTotal(service string, pod string) {
@@ -94,4 +98,8 @@ func ObserveResolverDuration(duration float64) {
 
 func ObserveSelectorDuration(strategy string, duration float64) {
 	selectorDuration.WithLabelValues(strategy).Observe(duration)
+}
+
+func IncUpdateSelectorCnt(strategy string) {
+	updateSelectorCnt.WithLabelValues(strategy).Inc()
 }

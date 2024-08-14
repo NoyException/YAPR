@@ -5,7 +5,6 @@ import (
 	"noy/router/pkg/yapr/core/errcode"
 	"noy/router/pkg/yapr/core/strategy"
 	"noy/router/pkg/yapr/core/types"
-	"noy/router/pkg/yapr/logger"
 )
 
 type CustomLuaStrategyBuilder struct{}
@@ -36,7 +35,7 @@ func (r *CustomLuaStrategy) Select(match *types.MatchTarget) (*types.Endpoint, m
 	for _, endpoint := range r.endpoints {
 		luaEndpoints.Append(lua.LString(endpoint.String()))
 	}
-	logger.Debugf("header x-uid: %v", luaHeaders.RawGetString("x-uid"))
+	//logger.Debugf("header x-uid: %v", luaHeaders.RawGetString("x-uid"))
 	err = luaState.CallByParam(lua.P{
 		Fn:   luaState.GetGlobal("select"),
 		NRet: 1,

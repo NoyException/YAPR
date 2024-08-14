@@ -5,7 +5,6 @@ import (
 	"noy/router/pkg/yapr/core/errcode"
 	"noy/router/pkg/yapr/core/strategy"
 	"noy/router/pkg/yapr/core/types"
-	"noy/router/pkg/yapr/logger"
 )
 
 type LeastCostStrategyBuilder struct{}
@@ -41,7 +40,7 @@ func (r *LeastCostStrategy) Select(_ *types.MatchTarget) (*types.Endpoint, map[s
 	if w2 != nil {
 		weight2 = *w2
 	}
-	logger.Debugf("weight1: %v, weight2: %v", weight1, weight2)
+	//logger.Debugf("weight1: %v, weight2: %v", weight1, weight2)
 	if weight1 < weight2 {
 		return r.endpoints[index1], nil, nil
 	} else {
