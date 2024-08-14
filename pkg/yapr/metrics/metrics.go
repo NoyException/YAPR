@@ -6,7 +6,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"log"
 	"net/http"
+	_ "net/http/pprof"
 	"noy/router/pkg/yapr/logger"
+	"strconv"
 )
 
 var (
@@ -55,10 +57,10 @@ var (
 	}, []string{"strategy"})
 )
 
-func Init() {
+func Init(port int) {
 	http.Handle("/metrics", promhttp.Handler())
-	logger.Info("metrics server started at :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	logger.Infof("metrics server started at :%d", port)
+	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(port), nil))
 }
 
 func IncRequestTotal(pod string, uri string) {

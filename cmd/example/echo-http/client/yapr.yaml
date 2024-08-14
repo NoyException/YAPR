@@ -17,10 +17,10 @@ yapr:
   routers:
     - name: "echo"
       rules:
-#        - matchers:
-#            - uri: ".*/Echo"
-#              port: 9090
-#          selector: "echo-rand"
+        - matchers:
+            - uri: ".*/Echo"
+              port: 9090
+          selector: "echo-rand"
 #          catch:
 #            no_endpoint:
 #              solution: "pass"

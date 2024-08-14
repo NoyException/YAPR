@@ -2,7 +2,6 @@ package builtin
 
 import (
 	lua "github.com/yuin/gopher-lua"
-	"google.golang.org/grpc/metadata"
 	"noy/router/pkg/yapr/core/errcode"
 	"noy/router/pkg/yapr/core/strategy"
 	"noy/router/pkg/yapr/core/types"
@@ -27,13 +26,10 @@ func (r *CustomLuaStrategy) Select(match *types.MatchTarget) (*types.Endpoint, m
 	if err != nil {
 		return nil, nil, err
 	}
-	md, exist := metadata.FromOutgoingContext(match.Ctx)
-	if !exist {
-		return nil, nil, errcode.ErrNoValueAvailable
-	}
+
 	luaHeaders := luaState.NewTable()
-	for k, vs := range md {
-		luaHeaders.RawSetString(k, lua.LString(vs[0]))
+	for k, v := range match.Headers {
+		luaHeaders.RawSetString(k, lua.LString(v))
 	}
 	// 创建lua数组
 	luaEndpoints := luaState.NewTable()
@@ -57,6 +53,10 @@ func (r *CustomLuaStrategy) Select(match *types.MatchTarget) (*types.Endpoint, m
 	}
 	//TODO: 从lua中获取header
 	return r.endpoints[idx], nil, nil
+}
+
+func (r *CustomLuaStrategy) EndpointFilters() []types.EndpointFilter {
+	return make([]types.EndpointFilter, 0)
 }
 
 func (r *CustomLuaStrategy) Update(endpoints map[types.Endpoint]*types.Attribute) {

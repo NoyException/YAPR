@@ -42,7 +42,7 @@ func Init(configPath string) *YaprSDK {
 	core.RegisterStrategyBuilder(types.StrategyRoundRobin, &builtin.RoundRobinStrategyBuilder{})
 	core.RegisterStrategyBuilder(types.StrategyWeightedRandom, &builtin.WeightedRandomStrategyBuilder{})
 	core.RegisterStrategyBuilder(types.StrategyWeightedRoundRobin, &builtin.WeightedRoundRobinStrategyBuilder{})
-	core.RegisterStrategyBuilder(types.StrategyLeastRequest, &builtin.LeastCostStrategyBuilder{}) // LeastRequest 与 LeastCost 共用一个 builder
+	core.RegisterStrategyBuilder(types.StrategyLeastRequest, &builtin.LeastRequestStrategyBuilder{})
 	core.RegisterStrategyBuilder(types.StrategyLeastCost, &builtin.LeastCostStrategyBuilder{})
 	core.RegisterStrategyBuilder(types.StrategyHashRing, &builtin.HashRingStrategyBuilder{})
 	core.RegisterStrategyBuilder(types.StrategyDirect, &builtin.DirectStrategyBuilder{})
@@ -72,11 +72,18 @@ func (y *YaprSDK) GRPCClientInterceptor(
 	invoker grpc.UnaryInvoker,
 	opts ...grpc.CallOption,
 ) error {
+	return y.invoke(func() error {
+		return invoker(ctx, method, req, reply, cc, opts...)
+	})
+}
+
+func (y *YaprSDK) invoke(invoker func() error) error {
 	for i := 0; i < 3; i++ {
-		err := invoker(ctx, method, req, reply, cc, opts...)
+		err := invoker()
 		if err == nil {
 			return nil
 		}
+
 		errWithCode := errcode.FromGRPCError(err)
 		if errWithCode == nil || errWithCode.Code != errcode.ErrWrongEndpoint.Code {
 			return err
@@ -104,6 +111,24 @@ func (y *YaprSDK) GRPCClientInterceptor(
 		logger.Debugf("retry %d times", i+1)
 	}
 	return errcode.ErrMaxRetries
+}
+
+// Invoke 当不使用gRPC时，需要使用Invoke方法进行调用。请确保headers要原封不动传递给服务端
+func (y *YaprSDK) Invoke(routerName string, match *types.MatchTarget, requestSender func(serviceName string, endpoint *types.Endpoint, port uint32, headers map[string]string) error) error {
+	serviceName, endpoint, port, headers, err := y.route(routerName, match)
+	if err != nil {
+		return err
+	}
+	return requestSender(serviceName, endpoint, port, headers)
+}
+
+func (y *YaprSDK) route(routerName string, match *types.MatchTarget) (serviceName string, endpoint *types.Endpoint, port uint32, headers map[string]string, err error) {
+	router, err := core.GetRouter(routerName)
+	if err != nil {
+		return
+	}
+	serviceName, endpoint, port, headers, err = router.Route(match)
+	return
 }
 
 // SetCustomRoute 设置自定义路由

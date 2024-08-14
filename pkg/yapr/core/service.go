@@ -5,6 +5,7 @@ import (
 	"noy/router/pkg/yapr/core/store"
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
+	"sync"
 )
 
 type Service struct {
@@ -12,8 +13,12 @@ type Service struct {
 }
 
 var services map[string]*Service
+var serviceMu = &sync.Mutex{}
 
 func GetService(name string) (*Service, error) {
+	serviceMu.Lock()
+	defer serviceMu.Unlock()
+
 	if services == nil {
 		s, err := store.MustStore().GetServices()
 		if err != nil {

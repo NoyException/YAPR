@@ -8,6 +8,8 @@ import (
 	"google.golang.org/grpc/metadata"
 	"log"
 	"net"
+	"net/http"
+	common "noy/router/cmd/example/echo-http"
 	"noy/router/cmd/example/echo/echopb"
 	"noy/router/pkg/yapr/core/sdk/server"
 	"noy/router/pkg/yapr/core/types"
@@ -16,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 )
 
@@ -56,8 +59,8 @@ func (e *EchoServer) Echo(ctx context.Context, request *echopb.EchoRequest) (*ec
 }
 
 func main() {
-	runtime.GOMAXPROCS(4)
 	flag.Parse()
+	runtime.GOMAXPROCS(4)
 
 	name = fmt.Sprintf("svr-%d", *id)
 
@@ -81,27 +84,50 @@ func main() {
 
 	endpoints := make([]*types.Endpoint, 0)
 
+	http.HandleFunc("/Echo", func(writer http.ResponseWriter, request *http.Request) {
+		response := common.Response{}
+		defer func() {
+			if response.Err == nil {
+				writer.WriteHeader(200)
+			} else {
+				writer.WriteHeader(500)
+			}
+			bytes, err := response.Marshal()
+			if err != nil {
+				logger.Errorf("marshal response error: %v", err)
+			}
+			_, err = writer.Write(bytes)
+			if err != nil {
+				logger.Errorf("write response error: %v", err)
+			}
+		}()
+
+		headers := make(map[string]string)
+		for k, v := range request.Header {
+			headers[strings.ToLower(k)] = v[0]
+		}
+		err := sdk.OnRequestReceived(headers)
+
+		if err != nil {
+			response.Err = err
+			return
+		}
+
+		response.Payload = make(map[string]string)
+		response.Payload["message"] = headers["message"]
+	})
+
 	for port := uint32(23333 + (*id-1)*(*endpointCnt)); port < uint32(23333+*id*(*endpointCnt)); port++ {
 		addr := fmt.Sprintf("%s:%d", *ip, port)
-		l, err := net.Listen("tcp", addr)
-		if err != nil {
-			panic(err)
-		}
-		s := grpc.NewServer(grpc.UnaryInterceptor(sdk.GRPCServerInterceptor))
-		defer s.Stop()
-
-		endpoint := sdk.NewEndpointWithPort(*ip, port)
-		endpoints = append(endpoints, endpoint)
-		echopb.RegisterEchoServiceServer(s, &EchoServer{
-			Endpoint: endpoint,
-		})
-
 		go func() {
-			log.Printf("server listening at %v", l.Addr())
-			if err := s.Serve(l); err != nil {
+			err := http.ListenAndServe(addr, nil)
+			if err != nil {
 				panic(err)
 			}
 		}()
+
+		endpoint := sdk.NewEndpointWithPort(*ip, port)
+		endpoints = append(endpoints, endpoint)
 	}
 
 	//logger.Debugf("weight: %d", *weight)

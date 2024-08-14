@@ -2,14 +2,13 @@ package core
 
 import (
 	"errors"
-	"google.golang.org/grpc/metadata"
 	"noy/router/pkg/yapr/core/errcode"
 	"noy/router/pkg/yapr/core/store"
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
-	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -19,8 +18,12 @@ type Router struct {
 }
 
 var routers = make(map[string]*Router)
+var routerMu = &sync.Mutex{}
 
 func GetRouter(name string) (*Router, error) {
+	routerMu.Lock()
+	defer routerMu.Unlock()
+
 	if router, ok := routers[name]; ok {
 		return router, nil
 	}
@@ -35,21 +38,21 @@ func GetRouter(name string) (*Router, error) {
 }
 
 func Match(m *types.Matcher, target *types.MatchTarget) bool {
-	matched, err := regexp.Match(m.URI, []byte(target.URI))
-	if err != nil || !matched {
+	uri := m.RegexURI()
+	matched := uri.Match([]byte(target.URI))
+	if !matched {
 		return false
 	}
 	if m.Port != 0 && target.Port != m.Port {
 		return false
 	}
 	if m.Headers != nil {
-		md, ok := metadata.FromIncomingContext(target.Ctx)
-		if !ok {
-			return false
-		}
-		for k, v := range m.Headers {
-			regex := regexp.MustCompile(v)
-			if !regex.MatchString(md[k][0]) {
+		for k, regex := range m.RegexHeaders() {
+			headerValue, ok := target.Headers[k]
+			if !ok {
+				return false
+			}
+			if !regex.MatchString(headerValue) {
 				return false
 			}
 		}
@@ -180,10 +183,14 @@ func (r *Router) Route(target *types.MatchTarget) (string, *types.Endpoint, uint
 				}
 				after := time.After(time.Duration(timeout*1000) * time.Millisecond)
 
+				if target.Timeout == nil {
+					target.Timeout = make(chan struct{})
+				}
+
 				flag := true
 				for flag {
 					select {
-					case <-target.Ctx.Done():
+					case <-target.Timeout:
 						return "", nil, 0, nil, errcode.ErrContextCanceled
 					case <-after:
 						return "", nil, 0, nil, errcode.ErrBlockTimeout

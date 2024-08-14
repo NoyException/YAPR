@@ -21,8 +21,12 @@ type Selector struct {
 }
 
 var selectors map[string]*Selector
+var selectorMu = &sync.Mutex{}
 
 func GetSelector(name string) (*Selector, error) {
+	selectorMu.Lock()
+	defer selectorMu.Unlock()
+
 	if selectors == nil {
 		s, err := store.MustStore().GetSelectors()
 		if err != nil {
@@ -61,10 +65,16 @@ func (s *Selector) Endpoints() []*types.Endpoint {
 	return s.MustService().Endpoints()
 }
 
-func (s *Selector) EndpointsWithAttribute() map[types.Endpoint]*types.Attribute {
+func (s *Selector) EndpointsWithAttribute(filters ...types.EndpointFilter) map[types.Endpoint]*types.Attribute {
 	result := make(map[types.Endpoint]*types.Attribute)
 	endpoints, attributes := s.MustService().Attributes(s.Name)
+OUTER:
 	for i := 0; i < len(endpoints); i++ {
+		for _, filter := range filters {
+			if !filter(s.Selector, endpoints[i], attributes[i]) {
+				continue OUTER
+			}
+		}
 		result[*endpoints[i]] = attributes[i]
 	}
 	return result
@@ -90,7 +100,7 @@ func (s *Selector) Select(target *types.MatchTarget) (endpoint *types.Endpoint, 
 	service := s.MustService()
 	version := service.Version()
 	if s.lastVersion < version {
-		s.strategy.Update(s.EndpointsWithAttribute())
+		s.strategy.Update(s.EndpointsWithAttribute(s.strategy.EndpointFilters()...))
 		s.lastVersion = version
 	}
 

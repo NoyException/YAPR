@@ -1,10 +1,7 @@
 package strategy
 
 import (
-	"google.golang.org/grpc/metadata"
 	"hash/crc32"
-	"noy/router/pkg/yapr/core/errcode"
-	"noy/router/pkg/yapr/core/types"
 )
 
 func HashString(s string) uint32 {
@@ -17,20 +14,4 @@ func HashString(s string) uint32 {
 		return crc32.ChecksumIEEE(scratch[:len(s)])
 	}
 	return crc32.ChecksumIEEE([]byte(s))
-}
-
-func HeaderValue(headerKey string, match *types.MatchTarget) (string, error) {
-	if headerKey == "" {
-		return "", errcode.ErrNoKeyAvailable
-	}
-
-	md, exist := metadata.FromOutgoingContext(match.Ctx)
-	if !exist {
-		return "", errcode.ErrNoValueAvailable
-	}
-	values := md.Get(headerKey)
-	if len(values) == 0 {
-		return "", errcode.ErrNoValueAvailable
-	}
-	return values[0], nil
 }

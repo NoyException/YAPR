@@ -67,9 +67,11 @@ func (s *Service) EndpointsSet() map[Endpoint]struct{} {
 }
 
 func NewDefaultAttr() *AttributeInSelector {
+	weight := uint32(1)
+	deadline := int64(0)
 	return &AttributeInSelector{
-		Weight:   1,
-		Deadline: 0,
+		Weight:   &weight,
+		Deadline: &deadline,
 	}
 }
 

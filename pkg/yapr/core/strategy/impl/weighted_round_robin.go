@@ -34,7 +34,12 @@ func (r *WeightedRoundRobinStrategy) Select(_ *types.MatchTarget) (*types.Endpoi
 		if first == nil {
 			first = endpoint
 		}
-		total += r.attributes[i].Weight
+		weight := uint32(1)
+		w := r.attributes[i].Weight
+		if w != nil {
+			weight = *w
+		}
+		total += weight
 		if r.lastIdx < total {
 			return endpoint, nil, nil
 		}
@@ -46,14 +51,18 @@ func (r *WeightedRoundRobinStrategy) Select(_ *types.MatchTarget) (*types.Endpoi
 	return first, nil, nil
 }
 
+func (r *WeightedRoundRobinStrategy) EndpointFilters() []types.EndpointFilter {
+	return []types.EndpointFilter{
+		types.GoodEndpointFilter,
+		types.FuseEndpointFilter,
+	}
+}
+
 func (r *WeightedRoundRobinStrategy) Update(endpoints map[types.Endpoint]*types.Attribute) {
 	size := len(endpoints)
 	r.endpoints = make([]*types.Endpoint, 0, size)
 	r.attributes = make([]*types.Attribute, 0, size)
 	for endpoint, attr := range endpoints {
-		if !attr.IsGood() {
-			continue
-		}
 		r.endpoints = append(r.endpoints, &endpoint)
 		r.attributes = append(r.attributes, attr)
 	}

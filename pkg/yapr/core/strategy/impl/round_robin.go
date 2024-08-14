@@ -27,13 +27,17 @@ func (r *RoundRobinStrategy) Select(_ *types.MatchTarget) (*types.Endpoint, map[
 	return r.endpoints[r.lastIdx], nil, nil
 }
 
+func (r *RoundRobinStrategy) EndpointFilters() []types.EndpointFilter {
+	return []types.EndpointFilter{
+		types.GoodEndpointFilter,
+		types.FuseEndpointFilter,
+	}
+}
+
 func (r *RoundRobinStrategy) Update(endpoints map[types.Endpoint]*types.Attribute) {
 	size := len(endpoints)
 	r.endpoints = make([]*types.Endpoint, 0, size)
-	for endpoint, attr := range endpoints {
-		if !attr.IsGood() {
-			continue
-		}
+	for endpoint := range endpoints {
 		r.endpoints = append(r.endpoints, &endpoint)
 	}
 	if len(r.endpoints) > 0 {

@@ -27,7 +27,8 @@ type YaprSDK struct {
 	routingTable   RoutingTable // 与本地服务端的Endpoint有关的路由表
 	routingTableMu sync.RWMutex
 
-	requestCounter sync.Map // selector_endpoint -> atomic.Uint32
+	requestCounter         sync.Map // selector_endpoint -> atomic.Int32
+	leastRequestReportMark sync.Map // selector_endpoint -> struct{}
 
 	migrationListener func(selectorName, headerValue string, from, to *types.Endpoint)
 	cancel            store.CancelFunc
@@ -68,23 +69,6 @@ func MustInstance() *YaprSDK {
 	return yaprSDK
 }
 
-//func GetLocalEndpoint() (*types.Endpoint, error) {
-//	addrs, err := net.InterfaceAddrs()
-//	if err != nil {
-//		return nil, err
-//	}
-//	for _, addr := range addrs {
-//		if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
-//			if ipNet.IP.To4() != nil {
-//				return &types.Endpoint{
-//					IP: ipNet.IP.String(),
-//				}, nil
-//			}
-//		}
-//	}
-//	return nil, core.ErrNoEndpointAvailable
-//}
-
 func (y *YaprSDK) onMigration(selectorName, headerValue string, from, to *types.Endpoint) {
 	if types.EqualEndpoints(from, to) {
 		return
@@ -118,18 +102,36 @@ func (y *YaprSDK) GRPCServerInterceptor(ctx context.Context, req any, info *grpc
 		logger.Errorf("metadata not found")
 		return nil, errcode.ErrMetadataNotFound
 	}
-	strategy := md.Get("yapr-strategy")
-	if strategy == nil || len(strategy) == 0 {
-		logger.Errorf("strategy not found")
-		return nil, errcode.ErrInvalidMetadata
+	headers := make(map[string]string)
+	for k, v := range md {
+		headers[k] = v[0]
 	}
-	selectorName := md.Get("yapr-selector")[0]
-	rawEndpoint := md.Get("yapr-endpoint")[0]
+	if err := y.OnRequestReceived(headers); err != nil {
+		return nil, err
+	}
+	return handler(ctx, req)
+}
+
+// OnRequestReceived 处理请求，根据请求头中的路由信息，判断请求是否合法。如果不用gRPC则需要在收到请求后，处理请求前调用此方法，如果返回错误，需要将错误返回给客户端
+func (y *YaprSDK) OnRequestReceived(headers map[string]string) error {
+	strategy, ok := headers["yapr-strategy"]
+	if !ok {
+		return errcode.ErrInvalidMetadata
+	}
+	selectorName := headers["yapr-selector"]
+	rawEndpoint := headers["yapr-endpoint"]
 	endpoint := types.EndpointFromString(rawEndpoint)
 
-	switch strategy[0] {
+	selector, err := core.GetSelector(selectorName)
+	if err != nil {
+		logger.Errorf("selector not found: %v", selectorName)
+		return errcode.ErrSelectorNotFound
+	}
+	shouldReportRPS := selector.MaxRequests != nil
+
+	switch strategy {
 	case types.StrategyDirect:
-		headerValue := md.Get("yapr-header-value")[0]
+		headerValue := headers["yapr-header-value"]
 
 		y.routingTableMu.RLock()
 		expectEndpoint := y.routingTable.GetRoute(selectorName, headerValue)
@@ -137,30 +139,37 @@ func (y *YaprSDK) GRPCServerInterceptor(ctx context.Context, req any, info *grpc
 
 		if _, ok := y.endpoints[*endpoint]; !ok || !types.EqualEndpoints(endpoint, expectEndpoint) {
 			logger.Errorf("wrong endpoint: %v", endpoint)
-			return nil, errcode.WithData(errcode.ErrWrongEndpoint, map[string]string{
+			return errcode.WithData(errcode.ErrWrongEndpoint, map[string]string{
 				"selectorName": selectorName,
 				"headerValue":  headerValue,
 				"endpoint":     rawEndpoint,
 			}).ToGRPCError()
 		}
 	case types.StrategyLeastRequest:
+		shouldReportRPS = true
+	}
+
+	if shouldReportRPS {
 		key := selectorName + "_" + rawEndpoint
-		actual, loaded := y.requestCounter.LoadOrStore(key, &atomic.Uint32{})
-		counter := actual.(*atomic.Uint32)
+		actual, _ := y.requestCounter.LoadOrStore(key, &atomic.Int32{})
+		counter := actual.(*atomic.Int32)
 		counter.Add(1)
-		if loaded {
+		defer counter.Add(-1)
+		_, loaded := y.leastRequestReportMark.LoadOrStore(key, struct{}{})
+
+		if !loaded {
 			go func() {
 				<-time.After(time.Second)
-				y.requestCounter.Delete(key)
-				err := y.ReportCost(endpoint, selectorName, counter.Load())
-				logger.Debugf("report cost: %v->%v", key, counter.Load())
+				y.leastRequestReportMark.Delete(key)
+				err := y.reportRPS(endpoint, selectorName, uint32(counter.Load()))
+				//logger.Infof("report rps: %v->%v", key, counter.Load())
 				if err != nil {
-					logger.Errorf("report cost failed: %v", err)
+					logger.Errorf("report rps failed: %v", err)
 				}
 			}()
 		}
 	}
-	return handler(ctx, req)
+	return nil
 }
 
 // RegisterService 服务注册，对某个serviceName只能注册一次。当返回的 channel 被关闭时，表示服务掉线，需要重新注册
@@ -195,10 +204,16 @@ func (y *YaprSDK) SetEndpointAttribute(endpoint *types.Endpoint, selector string
 	return store.MustStore().SetEndpointAttribute(endpoint, selector, attribute)
 }
 
-// ReportCost 上报服务端某Endpoint的开销，仅限least_cost/least_request路由策略使用
-func (y *YaprSDK) ReportCost(endpoint *types.Endpoint, selector string, cost uint32) error {
+// ReportWeight 上报服务端某Endpoint的开销，包括least_cost（只不过least_cost是weight越小越优先）
+func (y *YaprSDK) ReportWeight(endpoint *types.Endpoint, selector string, cost uint32) error {
 	return y.SetEndpointAttribute(endpoint, selector, &types.AttributeInSelector{
-		Weight: cost,
+		Weight: &cost,
+	})
+}
+
+func (y *YaprSDK) reportRPS(endpoint *types.Endpoint, selector string, rps uint32) error {
+	return y.SetEndpointAttribute(endpoint, selector, &types.AttributeInSelector{
+		RPS: &rps,
 	})
 }
 

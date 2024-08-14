@@ -12,9 +12,9 @@ import (
 type DirectStrategyBuilder struct{}
 
 func (b *DirectStrategyBuilder) Build(s *types.Selector) (strategy.Strategy, error) {
-	size := s.CacheSize
-	if size == 0 {
-		size = 4096
+	size := uint32(4096)
+	if s.CacheSize != nil && *s.CacheSize != 0 {
+		size = *s.CacheSize
 	}
 	var c cache.DirectCache
 	switch s.CacheType {
@@ -47,9 +47,9 @@ func (r *DirectStrategy) Select(match *types.MatchTarget) (*types.Endpoint, map[
 		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
 
-	value, err := strategy.HeaderValue(r.headerKey, match)
-	if err != nil {
-		return nil, nil, err
+	value, ok := match.Headers[r.headerKey]
+	if !ok {
+		return nil, nil, errcode.ErrNoValueAvailable
 	}
 
 	if r.cache == nil {
@@ -71,6 +71,10 @@ func (r *DirectStrategy) Select(match *types.MatchTarget) (*types.Endpoint, map[
 	}
 	logger.Debugf("direct select endpoint %v by value %v", endpoint, value)
 	return endpoint, headers, nil
+}
+
+func (r *DirectStrategy) EndpointFilters() []types.EndpointFilter {
+	return make([]types.EndpointFilter, 0)
 }
 
 func (r *DirectStrategy) Update(endpoints map[types.Endpoint]*types.Attribute) {

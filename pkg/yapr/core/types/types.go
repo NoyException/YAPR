@@ -1,41 +1,53 @@
 package types
 
 import (
-	"context"
-	"encoding/json"
-	"noy/router/pkg/yapr/logger"
+	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
 )
 
 type MatchTarget struct {
-	URI  string          // 方法名
-	Port uint32          // Router 端口
-	Ctx  context.Context // headers
+	URI     string            // 方法名
+	Port    uint32            // Router 端口
+	Headers map[string]string // headers
+	Timeout <-chan struct{}   // 用于通知超时
 }
 
 // Endpoint 代表了一个服务的一个Endpoint，请勿直接构造，使用yaprsdk.NewEndpoint或者EndpointFromString
 type Endpoint struct {
-	IP   string  `yaml:"ip" json:"ip,omitempty"`     // ip
-	Pod  string  `yaml:"pod" json:"pod,omitempty"`   // pod
-	Port *uint32 `yaml:"port" json:"port,omitempty"` // port，不填则默认为Selector的Port
+	IP   string
+	Pod  string
+	Port *uint32
 }
 
 func (e *Endpoint) String() string {
-	bytes, err := json.Marshal(e)
-	if err != nil {
-		logger.Errorf("Endpoint marshal error: %v", err)
-		return ""
+	port := ""
+	if e.Port != nil {
+		port = fmt.Sprintf("%d", *e.Port)
 	}
-	return string(bytes)
+	return fmt.Sprintf("%s#%s#%s", e.IP, e.Pod, port)
 }
 
 func EndpointFromString(s string) *Endpoint {
-	e := &Endpoint{}
-	err := json.Unmarshal([]byte(s), e)
-	if err != nil {
-		logger.Errorf("Endpoint unmarshal error: %v", err)
+	parts := strings.Split(s, "#")
+	if len(parts) != 3 {
 		return nil
 	}
-	return e
+	var port *uint32
+	if parts[2] != "" {
+		portInt, err := strconv.Atoi(parts[2])
+		if err != nil {
+			return nil
+		}
+		p := uint32(portInt)
+		port = &p
+	}
+	return &Endpoint{
+		IP:   parts[0],
+		Pod:  parts[1],
+		Port: port,
+	}
 }
 
 func EqualEndpoints(e1, e2 *Endpoint) bool {
@@ -48,6 +60,18 @@ func EqualEndpoints(e1, e2 *Endpoint) bool {
 	return e1.IP == e2.IP && e1.Port == e2.Port
 }
 
+type EndpointFilter func(*Selector, *Endpoint, *Attribute) bool
+
+var (
+	GoodEndpointFilter EndpointFilter = func(selector *Selector, endpoint *Endpoint, attribute *Attribute) bool {
+		return attribute.IsGood()
+	}
+
+	FuseEndpointFilter EndpointFilter = func(selector *Selector, endpoint *Endpoint, attribute *Attribute) bool {
+		return attribute.RPS == nil || selector.MaxRequests == nil || *attribute.RPS <= *selector.MaxRequests
+	}
+)
+
 // Attributes 代表了一个Endpoint在服务中的所有属性
 type Attributes struct {
 	*CommonAttribute `yaml:"common" json:"common,omitempty"` // 通用属性
@@ -58,17 +82,17 @@ type Attributes struct {
 // CommonAttribute 代表了一个Endpoint的通用属性
 type CommonAttribute struct {
 	Available bool `yaml:"available" json:"available,omitempty"` // 是否可用
-	Fused     bool `yaml:"fused" json:"fused,omitempty"`         // 是否熔断
 }
 
 func (c *CommonAttribute) IsGood() bool {
-	return c.Available && !c.Fused
+	return c.Available
 }
 
 // AttributeInSelector 代表了一个Endpoint在选择器中的属性
 type AttributeInSelector struct {
-	Weight   uint32 `yaml:"weight" json:"weight,omitempty"`     // 权重，默认为1
-	Deadline int64  `yaml:"deadline" json:"deadline,omitempty"` // 截止时间，单位毫秒，0表示永久，-1表示已过期
+	Weight   *uint32 `yaml:"weight" json:"weight,omitempty"`     // 权重，默认为1
+	RPS      *uint32 `yaml:"rps" json:"rps,omitempty"`           // 每秒请求数，开启熔断或选择LeastRequest策略时会自动填充
+	Deadline *int64  `yaml:"deadline" json:"deadline,omitempty"` // 截止时间，单位毫秒，0表示永久，-1表示已过期，默认为0
 }
 
 // Attribute 代表了一个Endpoint在选择器中的属性，同时附带了通用属性
@@ -118,6 +142,29 @@ type Matcher struct {
 	URI     string            `yaml:"uri" json:"uri,omitempty"`         // #方法名regex
 	Port    uint32            `yaml:"port" json:"port,omitempty"`       // #Router 端口
 	Headers map[string]string `yaml:"headers" json:"headers,omitempty"` // #对header的filters，对于所有header key都要满足指定regex
+
+	regexURI     *regexp.Regexp
+	regexHeaders map[string]*regexp.Regexp
+}
+
+func (m *Matcher) RegexURI() *regexp.Regexp {
+	if m.regexURI == nil {
+		m.regexURI = regexp.MustCompile(m.URI)
+	}
+	return m.regexURI
+}
+
+func (m *Matcher) RegexHeaders() map[string]*regexp.Regexp {
+	if m.Headers == nil {
+		return nil
+	}
+	if m.regexHeaders == nil {
+		m.regexHeaders = make(map[string]*regexp.Regexp)
+		for k, v := range m.Headers {
+			m.regexHeaders[k] = regexp.MustCompile(v)
+		}
+	}
+	return m.regexHeaders
 }
 
 // Rule 代表了一条路由规则，包含了匹配规则和目的地服务网格
@@ -148,14 +195,14 @@ const (
 
 // Selector 全名是Endpoint Selector，指定了目标service和选择策略【以json格式存etcd】
 type Selector struct {
-	Name      string            `yaml:"name" json:"name,omitempty"`             // #唯一名称
-	Service   string            `yaml:"service" json:"service,omitempty"`       // #目标服务
-	Port      uint32            `yaml:"port" json:"port,omitempty"`             // #目标端口
-	Headers   map[string]string `yaml:"headers" json:"headers,omitempty"`       // #路由成功后为请求添加的headers
-	Strategy  string            `yaml:"strategy" json:"strategy,omitempty"`     // #路由策略，默认为random
-	Key       string            `yaml:"key" json:"key,omitempty"`               // #用于从header中获取路由用的value，仅在一致性哈希和指定目标策略下有效
-	CacheType BufferType        `yaml:"cache_type" json:"cache_type,omitempty"` // #动态键值路由缓存类型，仅在指定目标策略下有效，默认为none
-	CacheSize uint32            `yaml:"cache_size" json:"cache_size,omitempty"` // #动态键值路由缓存大小，仅在指定目标策略下有效，默认为4096
-	Script    string            `yaml:"script" json:"script,omitempty"`         // #自定义lua脚本，仅在自定义策略下有效
-	//DirectMap    map[string]Endpoint `yaml:"-" json:"direct_map,omitempty"`      // 指定目标路由，从redis现存现取，表名$SelectorName，键值对为header value -> Endpoint
+	Name        string            `yaml:"name" json:"name,omitempty"`                 // #唯一名称
+	Service     string            `yaml:"service" json:"service,omitempty"`           // #目标服务
+	Port        uint32            `yaml:"port" json:"port,omitempty"`                 // #目标端口
+	Headers     map[string]string `yaml:"headers" json:"headers,omitempty"`           // #路由成功后为请求添加的headers
+	Strategy    string            `yaml:"strategy" json:"strategy,omitempty"`         // #路由策略，默认为random
+	MaxRequests *uint32           `yaml:"max_requests" json:"max_requests,omitempty"` // #最大请求数，填写后将开启熔断，会增加上报请求数的开销（LeastRequest本来就要上报，就不会增加）
+	Key         string            `yaml:"key" json:"key,omitempty"`                   // #用于从header中获取路由用的value，仅在一致性哈希和指定目标策略下有效
+	CacheType   BufferType        `yaml:"cache_type" json:"cache_type,omitempty"`     // #动态键值路由缓存类型，仅在指定目标策略下有效，默认为none
+	CacheSize   *uint32           `yaml:"cache_size" json:"cache_size,omitempty"`     // #动态键值路由缓存大小，仅在指定目标策略下有效，默认为4096
+	Script      string            `yaml:"script" json:"script,omitempty"`             // #自定义lua脚本，仅在自定义策略下有效
 }

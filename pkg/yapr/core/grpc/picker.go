@@ -24,10 +24,18 @@ func NewPicker(subConns map[string]balancer.SubConn, router *core.Router, port u
 }
 
 func (y *yaprPicker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
+	headers := make(map[string]string)
+	md, exists := metadata.FromOutgoingContext(info.Ctx)
+	if exists {
+		for k, v := range md {
+			headers[k] = v[0]
+		}
+	}
 	mt := &types.MatchTarget{
-		Port: y.port,
-		URI:  info.FullMethodName,
-		Ctx:  info.Ctx,
+		Port:    y.port,
+		URI:     info.FullMethodName,
+		Headers: headers,
+		Timeout: info.Ctx.Done(),
 	}
 	_, endpoint, port, meta, err := y.router.Route(mt)
 	if err != nil {

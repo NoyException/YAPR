@@ -27,6 +27,7 @@ type Impl struct {
 
 	mu                sync.Mutex
 	setCustomRouteSha string
+	setAttributeSha   string
 
 	serviceToLease map[string]clientv3.LeaseID
 }
@@ -374,25 +375,67 @@ func (s *Impl) RegisterServiceChangeListener(listener func(service string, chang
 }
 
 type AttributeChangeNTF struct {
-	selector  string
-	endpoint  string
-	attribute string
+	Selector  string `json:"selector"`
+	Endpoint  string `json:"endpoint"`
+	Attribute string `json:"attribute"`
 }
 
 func (s *Impl) SetEndpointAttribute(endpoint *types.Endpoint, selector string, attribute *types.AttributeInSelector) error {
-	bytes, err := json.Marshal(attribute)
+	if s.setAttributeSha == "" {
+		s.mu.Lock()
+		if s.setAttributeSha == "" {
+			// 仅当新属性存在某字段才覆盖该字段原有属性
+			luaScript := `
+local endpoint = KEYS[1]
+local key = "_attr_" .. endpoint
+local selector = ARGV[1]
+local newAttr = cjson.decode(ARGV[2])
+
+-- Get existing attribute
+local existingAttrJson = redis.call("HGET", key, selector)
+local existingAttr = {}
+if existingAttrJson then
+    existingAttr = cjson.decode(existingAttrJson)
+end
+
+-- Merge attributes
+for k, v in pairs(newAttr) do
+    if v ~= nil then
+        existingAttr[k] = v
+    end
+end
+
+-- Save merged attribute
+local mergedAttrJson = cjson.encode(existingAttr)
+redis.call("HSET", key, selector, mergedAttrJson)
+
+-- Notify attribute change
+redis.call("PUBLISH", "_attr_change", cjson.encode({
+    selector = selector,
+    endpoint = endpoint,
+    attribute = mergedAttrJson
+}))
+
+return mergedAttrJson
+`
+			// 计算 Lua 脚本的 SHA1 哈希值
+			sha, err := s.redisClient.ScriptLoad(context.Background(), luaScript).Result()
+			if err != nil {
+				panic(err)
+			}
+			s.setAttributeSha = sha
+		}
+		s.mu.Unlock()
+	}
+
+	// Convert attribute to JSON
+	attrJson, err := json.Marshal(attribute)
 	if err != nil {
 		return err
 	}
-	str := string(bytes)
-	_, err = s.redisClient.HSet(context.Background(), "_attr_"+endpoint.String(), selector, str).Result()
-	// 通知服务的属性变化
 
-	s.redisClient.Publish(context.Background(), "_attr_change", &AttributeChangeNTF{
-		selector:  selector,
-		endpoint:  endpoint.String(),
-		attribute: str,
-	})
+	// Execute Lua script
+	_, err = s.redisClient.EvalSha(context.Background(), s.setAttributeSha, []string{endpoint.String()}, selector, string(attrJson)).Result()
 	return err
 }
 
@@ -411,14 +454,14 @@ func (s *Impl) RegisterAttributeChangeListener(listener func(endpoint *types.End
 					logger.Warnf("unmarshal error: %v", err)
 					return
 				}
-				endpoint := types.EndpointFromString(ntf.endpoint)
+				endpoint := types.EndpointFromString(ntf.Endpoint)
 				var attr types.AttributeInSelector
-				err = json.Unmarshal([]byte(ntf.attribute), &attr)
+				err = json.Unmarshal([]byte(ntf.Attribute), &attr)
 				if err != nil {
 					logger.Warnf("unmarshal error: %v", err)
 					return
 				}
-				listener(endpoint, ntf.selector, &attr)
+				listener(endpoint, ntf.Selector, &attr)
 			}()
 		}
 	}()

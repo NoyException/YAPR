@@ -25,12 +25,16 @@ func (r *RandomStrategy) Select(_ *types.MatchTarget) (*types.Endpoint, map[stri
 	return r.endpoints[rand.IntN(size)], nil, nil
 }
 
+func (r *RandomStrategy) EndpointFilters() []types.EndpointFilter {
+	return []types.EndpointFilter{
+		types.GoodEndpointFilter,
+		types.FuseEndpointFilter,
+	}
+}
+
 func (r *RandomStrategy) Update(endpoints map[types.Endpoint]*types.Attribute) {
 	r.endpoints = make([]*types.Endpoint, 0, len(endpoints))
-	for endpoint, attr := range endpoints {
-		if !attr.IsGood() {
-			continue
-		}
+	for endpoint := range endpoints {
 		r.endpoints = append(r.endpoints, &endpoint)
 	}
 }
