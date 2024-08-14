@@ -22,10 +22,11 @@ var (
 	// 统一参数
 	configPath  = flag.String("configPath", "yapr.yaml", "config file path")
 	id          = flag.Int("id", 1, "server id, must be unique")
-	conns       = flag.Int("conns", 1, "concurrent connections")
+	conns       = flag.Int("conns", 8, "concurrent connections")
 	concurrency = flag.Int("concurrency", 1000, "goroutines")
 	qps         = flag.Int("qps", 100000, "qps")
 	dataSize    = flag.String("dataSize", "100B", "data size")
+	useYapr     = flag.Bool("useYapr", true, "use yapr")
 
 	name string
 )
@@ -49,8 +50,12 @@ func main() {
 
 	var clients []echopb.EchoServiceClient
 
+	target := "yapr:///echo"
+	if !*useYapr {
+		target = "9.134.60.182:23332"
+	}
 	for i := 0; i < *conns; i++ {
-		conn, err := grpc.NewClient("yapr:///echo",
+		conn, err := grpc.NewClient(target,
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithUnaryInterceptor(sdk.GRPCClientInterceptor))
 		if err != nil {
@@ -78,7 +83,7 @@ func main() {
 			for {
 				uid := uids[rand.Intn(len(uids))]
 				ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("x-uid", uid))
-				ctx2, cancel := context.WithTimeout(ctx, 1*time.Second)
+				ctx2, cancel := context.WithTimeout(ctx, 5*time.Second)
 				// 记录用时
 				start := time.Now()
 				response, err := client.Echo(ctx2, data)

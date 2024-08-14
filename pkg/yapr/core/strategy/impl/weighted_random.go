@@ -1,7 +1,8 @@
 package builtin
 
 import (
-	"math/rand/v2"
+	"github.com/emirpasic/gods/maps/treemap"
+	"math/rand"
 	"noy/router/pkg/yapr/core/errcode"
 	"noy/router/pkg/yapr/core/strategy"
 	"noy/router/pkg/yapr/core/types"
@@ -14,35 +15,18 @@ func (b *WeightedRandomStrategyBuilder) Build(s *types.Selector) (strategy.Strat
 }
 
 type WeightedRandomStrategy struct {
-	endpoints map[types.Endpoint]*types.Attribute
+	totalWeight           int
+	weightStageToEndpoint *treemap.Map
 }
 
 func (r *WeightedRandomStrategy) Select(_ *types.MatchTarget) (*types.Endpoint, map[string]string, error) {
-	if len(r.endpoints) == 0 {
+	rnd := rand.Int() % r.totalWeight
+	_, rawEndpoint := r.weightStageToEndpoint.Floor(rnd)
+	if rawEndpoint == nil {
 		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
-
-	totalWeight := uint32(0)
-	for _, attr := range r.endpoints {
-		weight := uint32(1)
-		if attr.Weight != nil {
-			weight = *attr.Weight
-		}
-		totalWeight += weight
-	}
-	rnd := rand.Uint32() % totalWeight
-	totalWeight = 0
-	for endpoint, attr := range r.endpoints {
-		weight := uint32(1)
-		if attr.Weight != nil {
-			weight = *attr.Weight
-		}
-		totalWeight += weight
-		if rnd < totalWeight {
-			return &endpoint, nil, nil
-		}
-	}
-	return nil, nil, errcode.ErrNoEndpointAvailable
+	endpoint := rawEndpoint.(*types.Endpoint)
+	return endpoint, nil, nil
 }
 
 func (r *WeightedRandomStrategy) EndpointFilters() []types.EndpointFilter {
@@ -53,5 +37,14 @@ func (r *WeightedRandomStrategy) EndpointFilters() []types.EndpointFilter {
 }
 
 func (r *WeightedRandomStrategy) Update(endpoints map[types.Endpoint]*types.Attribute) {
-	r.endpoints = endpoints
+	r.weightStageToEndpoint = treemap.NewWithIntComparator()
+	r.totalWeight = 0
+	for endpoint, attr := range endpoints {
+		weight := 1
+		if attr.Weight != nil {
+			weight = int(*attr.Weight)
+		}
+		r.weightStageToEndpoint.Put(r.totalWeight, endpoint)
+		r.totalWeight += weight
+	}
 }

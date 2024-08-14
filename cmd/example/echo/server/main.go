@@ -15,7 +15,6 @@ import (
 	"noy/router/pkg/yapr/metrics"
 	"os"
 	"os/signal"
-	"runtime"
 	"syscall"
 )
 
@@ -24,7 +23,7 @@ var (
 	configPath   = flag.String("configPath", "yapr.yaml", "config file path")
 	id           = flag.Int("id", 1, "server id, must be unique")
 	ip           = flag.String("ip", "localhost", "node ip address, must be unique")
-	endpointCnt  = flag.Int("endpointCnt", 100, "endpoint count")
+	endpointCnt  = flag.Int("endpointCnt", 1000, "endpoint count")
 	weight       = flag.Int("weight", 1, "default weight for all endpoints")
 	gracefulStop = flag.Bool("gracefulStop", true, "enable graceful stop")
 
@@ -56,7 +55,7 @@ func (e *EchoServer) Echo(ctx context.Context, request *echopb.EchoRequest) (*ec
 }
 
 func main() {
-	runtime.GOMAXPROCS(4)
+	//runtime.GOMAXPROCS(4)
 	flag.Parse()
 
 	name = fmt.Sprintf("svr-%d", *id)
