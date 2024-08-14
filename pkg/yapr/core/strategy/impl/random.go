@@ -1,7 +1,7 @@
 package builtin
 
 import (
-	"math/rand/v2"
+	"math/rand"
 	"noy/router/pkg/yapr/core/errcode"
 	"noy/router/pkg/yapr/core/strategy"
 	"noy/router/pkg/yapr/core/types"
@@ -22,7 +22,7 @@ func (r *RandomStrategy) Select(_ *types.MatchTarget) (*types.Endpoint, map[stri
 	if size == 0 {
 		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
-	return r.endpoints[rand.IntN(size)], nil, nil
+	return r.endpoints[rand.Intn(size)], nil, nil
 }
 
 func (r *RandomStrategy) EndpointFilters() []types.EndpointFilter {

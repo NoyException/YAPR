@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
-	"math/rand/v2"
+	"math/rand"
 	"noy/router/cmd/example/echo/echopb"
 	"noy/router/pkg/yapr/core/sdk/client"
 	"noy/router/pkg/yapr/logger"
@@ -76,7 +76,7 @@ func main() {
 				return
 			}
 			for {
-				uid := uids[rand.IntN(len(uids))]
+				uid := uids[rand.Intn(len(uids))]
 				ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("x-uid", uid))
 				ctx2, cancel := context.WithTimeout(ctx, 1*time.Second)
 				// 记录用时

@@ -1,7 +1,7 @@
 package builtin
 
 import (
-	"math/rand/v2"
+	"math/rand"
 	"noy/router/pkg/yapr/core/errcode"
 	"noy/router/pkg/yapr/core/strategy"
 	"noy/router/pkg/yapr/core/types"
@@ -29,8 +29,8 @@ func (r *LeastRequestStrategy) Select(_ *types.MatchTarget) (*types.Endpoint, ma
 	}
 
 	// 随机选择两个Endpoint，比较其RPS，选择RPS小的
-	index1 := rand.IntN(size)
-	index2 := rand.IntN(size)
+	index1 := rand.Intn(size)
+	index2 := rand.Intn(size)
 	rps1 := uint32(0)
 	rps2 := uint32(0)
 	rps1p := r.attributes[index1].RPS

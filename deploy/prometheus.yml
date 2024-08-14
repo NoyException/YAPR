@@ -13,7 +13,7 @@ scrape_configs:
     - targets: ['redis-exporter:9121']
   - job_name: 'client'
     static_configs:
-    - targets: ['client-1:8080','client-2:8080']
+    - targets: ['client-1:8080','client-2:8080','localhost:8080']
   - job_name: 'server'
     static_configs:
-    - targets: ['server-1:8080','server-2:8080','server-3:8080']
+    - targets: ['server-1:8080','server-2:8080','server-3:8080','localhost:8081']

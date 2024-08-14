@@ -4,7 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"math/rand/v2"
+	"math/rand"
 	"net/http"
 	"noy/router/pkg/yapr/core/sdk/client"
 	"noy/router/pkg/yapr/core/types"
@@ -76,7 +76,7 @@ func Send(requestSender func(serviceName string, endpoint *types.Endpoint, port 
 		URI:  "/Echo",
 		Port: 9090,
 		Headers: map[string]string{
-			"x-uid": strconv.Itoa(rand.IntN(1000000)),
+			"x-uid": strconv.Itoa(rand.Intn(1000000)),
 		},
 	}
 	err := sdk.Invoke("echo", match, requestSender)

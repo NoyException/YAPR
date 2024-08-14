@@ -1,7 +1,7 @@
 package builtin
 
 import (
-	"math/rand/v2"
+	"math/rand"
 	"noy/router/pkg/yapr/core/errcode"
 	"noy/router/pkg/yapr/core/strategy"
 	"noy/router/pkg/yapr/core/types"
@@ -67,6 +67,6 @@ func (r *WeightedRoundRobinStrategy) Update(endpoints map[types.Endpoint]*types.
 		r.attributes = append(r.attributes, attr)
 	}
 	if len(r.endpoints) > 0 {
-		r.lastIdx = uint32(rand.IntN(len(r.endpoints)))
+		r.lastIdx = uint32(rand.Intn(len(r.endpoints)))
 	}
 }

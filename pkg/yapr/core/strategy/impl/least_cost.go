@@ -1,7 +1,7 @@
 package builtin
 
 import (
-	"math/rand/v2"
+	"math/rand"
 	"noy/router/pkg/yapr/core/errcode"
 	"noy/router/pkg/yapr/core/strategy"
 	"noy/router/pkg/yapr/core/types"
@@ -29,8 +29,8 @@ func (r *LeastCostStrategy) Select(_ *types.MatchTarget) (*types.Endpoint, map[s
 	}
 
 	// 随机选择两个Endpoint，比较其权重，选择权重小的
-	index1 := rand.IntN(size)
-	index2 := rand.IntN(size)
+	index1 := rand.Intn(size)
+	index2 := rand.Intn(size)
 	weight1 := uint32(1)
 	weight2 := uint32(1)
 	w1 := r.attributes[index1].Weight
