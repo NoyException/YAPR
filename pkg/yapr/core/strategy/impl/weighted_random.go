@@ -44,7 +44,7 @@ func (r *WeightedRandomStrategy) Update(endpoints map[types.Endpoint]*types.Attr
 		if attr.Weight != nil {
 			weight = int(*attr.Weight)
 		}
-		r.weightStageToEndpoint.Put(r.totalWeight, endpoint)
+		r.weightStageToEndpoint.Put(r.totalWeight, &endpoint)
 		r.totalWeight += weight
 	}
 }
