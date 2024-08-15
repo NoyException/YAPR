@@ -17,7 +17,6 @@ import (
 	"noy/router/pkg/yapr/metrics"
 	"os"
 	"os/signal"
-	"runtime"
 	"strings"
 	"syscall"
 )
@@ -60,7 +59,6 @@ func (e *EchoServer) Echo(ctx context.Context, request *echopb.EchoRequest) (*ec
 
 func main() {
 	flag.Parse()
-	runtime.GOMAXPROCS(4)
 
 	name = fmt.Sprintf("svr-%d", *id)
 

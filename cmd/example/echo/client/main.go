@@ -87,7 +87,7 @@ func main() {
 				// 记录用时
 				start := time.Now()
 				response, err := client.Echo(ctx2, data)
-				metrics.ObserveGRPCDuration("echo", time.Since(start).Seconds())
+				metrics.ObserveRequestDuration("echo", time.Since(start).Seconds())
 				metrics.IncRequestTotal(name, "echo/Echo")
 				if err != nil {
 					logger.Errorf(err.Error())

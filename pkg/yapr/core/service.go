@@ -34,5 +34,6 @@ func GetService(name string) (*Service, error) {
 	if service, ok := services[name]; ok {
 		return service, nil
 	}
+	logger.Errorf("service not found: %s", name)
 	return nil, errcode.ErrServiceNotFound
 }

@@ -32,9 +32,9 @@ var (
 		Help: "The total number of pods hang",
 	}, []string{"service", "pod"})
 
-	gRPCDuration = promauto.NewSummaryVec(prometheus.SummaryOpts{
-		Name:       "grpc_duration",
-		Help:       "The duration of gRPC",
+	requestDuration = promauto.NewSummaryVec(prometheus.SummaryOpts{
+		Name:       "request_duration",
+		Help:       "The duration between request and response",
 		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 	}, []string{"target"})
 
@@ -84,8 +84,8 @@ func IncHangPodTotal(service string, pod string) {
 	hangPodTotal.WithLabelValues(service, pod).Inc()
 }
 
-func ObserveGRPCDuration(target string, duration float64) {
-	gRPCDuration.WithLabelValues(target).Observe(duration)
+func ObserveRequestDuration(target string, duration float64) {
+	requestDuration.WithLabelValues(target).Observe(duration)
 }
 
 func ObserveResolverDuration(duration float64) {
