@@ -142,19 +142,20 @@ func handleConnection(conn net.Conn) {
 		}
 
 		d := echo_tcp.UnmarshalData(data)
-		err = sdk.OnRequestReceived(d.Headers)
-		if d.Headers["yapr-strategy"] == types.StrategyRandom {
-			rawEndpoint := d.Headers["yapr-endpoint"]
-			uid := d.Headers["x-uid"]
-			endpoint := types.EndpointFromString(rawEndpoint)
-			_, _, err := sdk.SetCustomRoute("echo-dir", uid, endpoint, 0, false)
-			if err != nil {
-				logger.Errorf("SetCustomRoute error: %v", err)
-			} else {
-				logger.Infof("SetCustomRoute: %s, %s", uid, endpoint)
-			}
-		}
+		sent, err := sdk.OnRequestReceived(d.Headers)
 		d.Err = err
+		// 业务逻辑：当自定义路由没设置时，使用随机路由路由到了这里，于是设置自定义路由永远路由到这里
+		//if d.Headers["yapr-strategy"] == types.StrategyRandom {
+		//	rawEndpoint := d.Headers["yapr-endpoint"]
+		//	uid := d.Headers["x-uid"]
+		//	endpoint := types.EndpointFromString(rawEndpoint)
+		//	_, _, err := sdk.SetCustomRoute("echo-dir", uid, endpoint, 0, false)
+		//	if err != nil {
+		//		logger.Errorf("SetCustomRoute error: %v", err)
+		//	} else {
+		//		logger.Infof("SetCustomRoute: %s, %s", uid, endpoint)
+		//	}
+		//}
 		response := d.Marshal()
 
 		// Send the length of the response data
@@ -170,6 +171,10 @@ func handleConnection(conn net.Conn) {
 		if err != nil {
 			logger.Errorf("Failed to write data: %v", err)
 			return
+		}
+
+		if sent != nil {
+			sent()
 		}
 	}
 }

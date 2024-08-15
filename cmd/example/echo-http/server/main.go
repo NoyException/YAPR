@@ -104,12 +104,12 @@ func main() {
 		for k, v := range request.Header {
 			headers[strings.ToLower(k)] = v[0]
 		}
-		err := sdk.OnRequestReceived(headers)
-
+		sent, err := sdk.OnRequestReceived(headers)
 		if err != nil {
 			response.Err = err
 			return
 		}
+		defer sent()
 
 		response.Payload = make(map[string]string)
 		response.Payload["message"] = headers["message"]

@@ -107,17 +107,19 @@ func (y *YaprSDK) GRPCServerInterceptor(ctx context.Context, req any, info *grpc
 	for k, v := range md {
 		headers[k] = v[0]
 	}
-	if err := y.OnRequestReceived(headers); err != nil {
+	sent, err := y.OnRequestReceived(headers)
+	if err != nil {
 		return nil, err
 	}
+	defer sent()
 	return handler(ctx, req)
 }
 
 // OnRequestReceived 处理请求，根据请求头中的路由信息，判断请求是否合法。如果不用gRPC则需要在收到请求后，处理请求前调用此方法，如果返回错误，需要将错误返回给客户端
-func (y *YaprSDK) OnRequestReceived(headers map[string]string) error {
+func (y *YaprSDK) OnRequestReceived(headers map[string]string) (onResponseSent func(), err error) {
 	strategy, ok := headers["yapr-strategy"]
 	if !ok {
-		return errcode.ErrInvalidMetadata
+		return nil, errcode.ErrInvalidMetadata
 	}
 	selectorName := headers["yapr-selector"]
 	rawEndpoint := headers["yapr-endpoint"]
@@ -126,7 +128,7 @@ func (y *YaprSDK) OnRequestReceived(headers map[string]string) error {
 	selector, err := core.GetSelector(selectorName)
 	if err != nil {
 		logger.Errorf("selector not found: %v", selectorName)
-		return errcode.ErrSelectorNotFound
+		return nil, errcode.ErrSelectorNotFound
 	}
 	shouldReportRPS := selector.MaxRequests != nil
 
@@ -138,21 +140,20 @@ func (y *YaprSDK) OnRequestReceived(headers map[string]string) error {
 		expectEndpoint := y.routingTable.GetRoute(selectorName, headerValue)
 		y.routingTableMu.RUnlock()
 
-		_, inPod := y.endpoints[*endpoint]
-		if inPod && expectEndpoint == nil {
+		if expectEndpoint == nil {
 			expectEndpoint, err = store.MustStore().GetCustomRoute(selectorName, headerValue)
 			if err != nil {
 				logger.Errorf("get custom route failed: %v", err)
-				return err
+				return nil, err
 			}
 			y.routingTableMu.Lock()
 			y.routingTable.AddRoute(selectorName, headerValue, expectEndpoint)
 			y.routingTableMu.Unlock()
 		}
 
-		if !inPod || !types.EqualEndpoints(endpoint, expectEndpoint) {
+		if !types.EqualEndpoints(endpoint, expectEndpoint) {
 			logger.Errorf("wrong endpoint: %v, expect: %v, ok: %v", endpoint, expectEndpoint, ok)
-			return errcode.WithData(errcode.ErrWrongEndpoint, map[string]string{
+			return nil, errcode.WithData(errcode.ErrWrongEndpoint, map[string]string{
 				"selectorName": selectorName,
 				"headerValue":  headerValue,
 				"endpoint":     rawEndpoint,
@@ -169,9 +170,11 @@ func (y *YaprSDK) OnRequestReceived(headers map[string]string) error {
 		actual, _ := y.requestCounter.LoadOrStore(key, &atomic.Int32{})
 		counter := actual.(*atomic.Int32)
 		counter.Add(1)
-		defer counter.Add(-1)
-		_, loaded := y.leastRequestReportMark.LoadOrStore(key, struct{}{})
+		onResponseSent = func() {
+			counter.Add(-1)
+		}
 
+		_, loaded := y.leastRequestReportMark.LoadOrStore(key, struct{}{})
 		if !loaded {
 			go func() {
 				<-time.After(time.Second)
@@ -184,7 +187,8 @@ func (y *YaprSDK) OnRequestReceived(headers map[string]string) error {
 			}()
 		}
 	}
-	return nil
+	err = nil
+	return
 }
 
 // RegisterService 服务注册，对某个serviceName只能注册一次。当返回的 channel 被关闭时，表示服务掉线，需要重新注册
