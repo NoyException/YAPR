@@ -164,7 +164,7 @@ func (y *YaprSDK) OnRequestReceived(headers map[string]string) error {
 				<-time.After(time.Second)
 				y.leastRequestReportMark.Delete(key)
 				err := y.reportRPS(endpoint, selectorName, uint32(counter.Load()))
-				logger.Infof("report rps: %v->%v", key, counter.Load())
+				//logger.Infof("report rps: %v->%v", key, counter.Load())
 				if err != nil {
 					logger.Errorf("report rps failed: %v", err)
 				}
@@ -258,6 +258,6 @@ func (y *YaprSDK) NewEndpointWithPort(ip string, port uint32) *types.Endpoint {
 	return &types.Endpoint{
 		IP:   ip,
 		Pod:  y.pod,
-		Port: &port,
+		Port: port,
 	}
 }

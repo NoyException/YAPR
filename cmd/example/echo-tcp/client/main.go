@@ -89,31 +89,40 @@ func (c *Client) Send(message []byte) ([]byte, error) {
 	}()
 
 	// Send the length of the data
-	err := binary.Write(c.conn, binary.LittleEndian, int32(len(message)))
+	var lengthBuf [4]byte
+	binary.LittleEndian.PutUint32(lengthBuf[:], uint32(len(message)))
+	_, err := c.conn.Write(lengthBuf[:])
 	if err != nil {
-		return nil, fmt.Errorf("failed to write length: %v", err)
+		//return nil, fmt.Errorf("failed to write length: %v", err)
+		panic(err)
 	}
 
 	// Send the data
 	_, err = c.conn.Write(message)
 	if err != nil {
-		return nil, fmt.Errorf("failed to write data: %v", err)
+		//return nil, fmt.Errorf("failed to write data: %v", err)
+		panic(err)
 	}
 
 	reader := bufio.NewReader(c.conn)
 
 	// Read the length of the response data
-	var length int32
-	err = binary.Read(reader, binary.LittleEndian, &length)
+	_, err = io.ReadFull(reader, lengthBuf[:])
 	if err != nil {
-		return nil, fmt.Errorf("failed to read length: %v", err)
+		if err == io.EOF {
+			return nil, fmt.Errorf("connection closed")
+		}
+		logger.Errorf("Failed to read length: %v", err)
+		panic(err)
 	}
+	length := binary.LittleEndian.Uint32(lengthBuf[:])
 
 	// Read the response data
 	response := make([]byte, length)
 	_, err = io.ReadFull(reader, response)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read data: %v", err)
+		//return nil, fmt.Errorf("failed to read data: %v", err)
+		panic(err)
 	}
 
 	return response, nil
@@ -136,10 +145,14 @@ func main() {
 
 	time.Sleep(1000 * time.Millisecond)
 
-	//target := "yapr:///echo"
-	//if !*useYapr {
-	//	target = "9.134.60.182:23332"
-	//}
+	directTargets := make([]string, 0)
+	if !*useYapr {
+		endpoints := sdk.GetEndpoints("echo-rand")
+		logger.Infof("size of endpoints: %d", len(endpoints))
+		for endpoint := range endpoints {
+			directTargets = append(directTargets, fmt.Sprintf("%s:%d", endpoint.IP, endpoint.Port))
+		}
+	}
 
 	uids := make([]string, 100000)
 	for i := 0; i < 100000; i++ {
@@ -159,7 +172,12 @@ func main() {
 				uid := uids[rand.Intn(len(uids))]
 				// 记录用时
 				start := time.Now()
-				Send(uid, data)
+				if *useYapr {
+					Send(uid, data)
+				} else {
+					target := directTargets[rand.Intn(len(directTargets))]
+					SendDirect(target, uid, data)
+				}
 				metrics.ObserveRequestDuration("echo", time.Since(start).Seconds())
 				metrics.IncRequestTotal(name, "echo/Echo")
 				if err != nil {
@@ -215,6 +233,43 @@ func Send(uid string, data []byte) {
 	if err != nil {
 		logger.Errorf("request failed: %v", err)
 	}
+}
+
+func SendDirect(target string, uid string, data []byte) {
+	addr := target
+	var clientPool *ClientPool
+	rawPool, ok := clientMap.Load(addr)
+	if !ok {
+		var err error
+		clientPool, err = NewClientPool(addr, *conns)
+		if err != nil {
+			logger.Errorf("new client pool failed: %v", err)
+			return
+		}
+		clientMap.Store(addr, clientPool)
+	} else {
+		clientPool = rawPool.(*ClientPool)
+	}
+	d := &echo_tcp.Data{
+		Headers: map[string]string{
+			"x-uid": uid,
+		},
+		Data: data,
+	}
+	client, err := clientPool.GetAvailableClient()
+	if err != nil {
+		logger.Errorf("get client failed: %v", err)
+		return
+	}
+	d2, err := client.Send(d.Marshal())
+	if err != nil {
+		logger.Errorf("send failed: %v", err)
+	}
+	unmarshalData := echo_tcp.UnmarshalData(d2)
+	if unmarshalData.Err != nil {
+		logger.Errorf("response error: %v", unmarshalData.Err)
+	}
+	//logger.Infof("response: %s", string(unmarshalData.Data))
 }
 
 func createData(size string) ([]byte, error) {

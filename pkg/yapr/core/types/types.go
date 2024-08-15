@@ -18,13 +18,13 @@ type MatchTarget struct {
 type Endpoint struct {
 	IP   string
 	Pod  string
-	Port *uint32
+	Port uint32
 }
 
 func (e *Endpoint) String() string {
 	port := ""
-	if e.Port != nil {
-		port = fmt.Sprintf("%d", *e.Port)
+	if e.Port != 0 {
+		port = fmt.Sprintf("%d", e.Port)
 	}
 	return fmt.Sprintf("%s#%s#%s", e.IP, e.Pod, port)
 }
@@ -34,14 +34,13 @@ func EndpointFromString(s string) *Endpoint {
 	if len(parts) != 3 {
 		return nil
 	}
-	var port *uint32
+	port := uint32(0)
 	if parts[2] != "" {
 		portInt, err := strconv.Atoi(parts[2])
 		if err != nil {
 			return nil
 		}
-		p := uint32(portInt)
-		port = &p
+		port = uint32(portInt)
 	}
 	return &Endpoint{
 		IP:   parts[0],

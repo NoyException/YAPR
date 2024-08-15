@@ -119,8 +119,8 @@ func (y *yaprResolver) Endpoints(router *core.Router) []resolver.Endpoint {
 		var addrs []resolver.Address
 		for _, endpoint := range service.Endpoints() {
 			port := selector.Port
-			if endpoint.Port != nil {
-				port = *endpoint.Port
+			if endpoint.Port != 0 {
+				port = endpoint.Port
 			}
 			addr := fmt.Sprintf("%s:%d", endpoint.IP, port)
 			// 除去重复的地址

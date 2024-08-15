@@ -212,8 +212,8 @@ func (r *Router) Route(target *types.MatchTarget) (string, *types.Endpoint, uint
 			headers["yapr-endpoint"] = endpoint.String()
 		}
 		port := selector.Port
-		if endpoint.Port != nil {
-			port = *endpoint.Port
+		if endpoint.Port != 0 {
+			port = endpoint.Port
 		}
 		return selector.Service, endpoint, port, headers, nil
 	}

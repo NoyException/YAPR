@@ -117,16 +117,22 @@ func handleConnection(conn net.Conn) {
 
 	for {
 		// Read the length of the incoming data
-		var length int32
-		err := binary.Read(reader, binary.LittleEndian, &length)
+		var lengthBuf [4]byte
+		_, err := io.ReadFull(reader, lengthBuf[:])
 		if err != nil {
 			if err == io.EOF {
+				//logger.Warnf("Connection closed")
 				return
 			}
 			logger.Errorf("Failed to read length: %v", err)
 			return
 		}
+		length := int32(binary.LittleEndian.Uint32(lengthBuf[:]))
 
+		if length > 65536 {
+			logger.Errorf("length too large: %d", length)
+			return
+		}
 		// Read the data based on the length
 		data := make([]byte, length)
 		_, err = io.ReadFull(reader, data)
@@ -141,7 +147,8 @@ func handleConnection(conn net.Conn) {
 		response := d.Marshal()
 
 		// Send the length of the response data
-		err = binary.Write(conn, binary.LittleEndian, int32(len(response)))
+		binary.LittleEndian.PutUint32(lengthBuf[:], uint32(len(response)))
+		_, err = conn.Write(lengthBuf[:])
 		if err != nil {
 			logger.Errorf("Failed to write length: %v", err)
 			return
