@@ -143,6 +143,17 @@ func handleConnection(conn net.Conn) {
 
 		d := echo_tcp.UnmarshalData(data)
 		err = sdk.OnRequestReceived(d.Headers)
+		if d.Headers["yapr-strategy"] == types.StrategyRandom {
+			rawEndpoint := d.Headers["yapr-endpoint"]
+			uid := d.Headers["x-uid"]
+			endpoint := types.EndpointFromString(rawEndpoint)
+			_, _, err := sdk.SetCustomRoute("echo-dir", uid, endpoint, 0, false)
+			if err != nil {
+				logger.Errorf("SetCustomRoute error: %v", err)
+			} else {
+				logger.Infof("SetCustomRoute: %s, %s", uid, endpoint)
+			}
+		}
 		d.Err = err
 		response := d.Marshal()
 

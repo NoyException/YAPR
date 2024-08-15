@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"noy/router/pkg/yapr/core/errcode"
 )
 
 type Data struct {
@@ -75,7 +76,12 @@ func UnmarshalData(b []byte) *Data {
 	if errLen > 0 {
 		errMsg := make([]byte, errLen)
 		buf.Read(errMsg)
-		d.Err = fmt.Errorf(string(errMsg))
+		errWithCode := errcode.UnmarshalError(string(errMsg))
+		if errWithCode != nil {
+			d.Err = errWithCode
+		} else {
+			d.Err = fmt.Errorf(string(errMsg))
+		}
 	}
 
 	return d

@@ -17,6 +17,7 @@ type Selector struct {
 
 	mu          sync.Mutex
 	lastVersion uint64
+	lastUpdate  time.Time
 	strategy    strategy.Strategy
 }
 
@@ -99,9 +100,10 @@ func (s *Selector) Select(target *types.MatchTarget) (endpoint *types.Endpoint, 
 
 	service := s.MustService()
 	version := service.Version()
-	if s.lastVersion < version {
+	if s.lastVersion < version && time.Since(s.lastUpdate) > 100*time.Millisecond {
 		s.strategy.Update(s.EndpointsWithAttribute(s.strategy.EndpointFilters()...))
 		s.lastVersion = version
+		s.lastUpdate = time.Now()
 		metrics.IncUpdateSelectorCnt(s.Strategy)
 	}
 

@@ -154,8 +154,9 @@ func main() {
 		}
 	}
 
-	uids := make([]string, 100000)
-	for i := 0; i < 100000; i++ {
+	playerCnt := 1000
+	uids := make([]string, playerCnt)
+	for i := 0; i < playerCnt; i++ {
 		uid := 1000000 + i
 		uids[i] = fmt.Sprintf("%d", uid)
 	}
@@ -213,6 +214,7 @@ func Send(uid string, data []byte) {
 		} else {
 			clientPool = rawPool.(*ClientPool)
 		}
+		headers["x-uid"] = uid
 		d := &echo_tcp.Data{
 			Headers: headers,
 			Data:    data,

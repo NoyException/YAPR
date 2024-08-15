@@ -85,6 +85,7 @@ func (y *YaprSDK) onMigration(selectorName, headerValue string, from, to *types.
 	if to != nil {
 		if _, ok := y.endpoints[*to]; ok && !types.EqualEndpoints(to, y.routingTable.GetRoute(selectorName, headerValue)) {
 			relative = true
+			logger.Infof("migration: %v, %v, %v", selectorName, headerValue, to)
 			y.routingTable.AddRoute(selectorName, headerValue, to)
 		}
 	}
@@ -137,8 +138,20 @@ func (y *YaprSDK) OnRequestReceived(headers map[string]string) error {
 		expectEndpoint := y.routingTable.GetRoute(selectorName, headerValue)
 		y.routingTableMu.RUnlock()
 
-		if _, ok := y.endpoints[*endpoint]; !ok || !types.EqualEndpoints(endpoint, expectEndpoint) {
-			logger.Errorf("wrong endpoint: %v", endpoint)
+		_, inPod := y.endpoints[*endpoint]
+		if inPod && expectEndpoint == nil {
+			expectEndpoint, err = store.MustStore().GetCustomRoute(selectorName, headerValue)
+			if err != nil {
+				logger.Errorf("get custom route failed: %v", err)
+				return err
+			}
+			y.routingTableMu.Lock()
+			y.routingTable.AddRoute(selectorName, headerValue, expectEndpoint)
+			y.routingTableMu.Unlock()
+		}
+
+		if !inPod || !types.EqualEndpoints(endpoint, expectEndpoint) {
+			logger.Errorf("wrong endpoint: %v, expect: %v, ok: %v", endpoint, expectEndpoint, ok)
 			return errcode.WithData(errcode.ErrWrongEndpoint, map[string]string{
 				"selectorName": selectorName,
 				"headerValue":  headerValue,

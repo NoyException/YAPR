@@ -31,6 +31,14 @@ func (e *ErrWithCode) Error() string {
 	return string(bytes)
 }
 
+func UnmarshalError(s string) *ErrWithCode {
+	var e ErrWithCode
+	if err := json.Unmarshal([]byte(s), &e); err != nil {
+		return nil
+	}
+	return &e
+}
+
 func As(err error) (*ErrWithCode, bool) {
 	for ; err != nil; err = errors.Unwrap(err) {
 		s := err.Error()

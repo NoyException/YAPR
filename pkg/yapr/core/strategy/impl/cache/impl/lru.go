@@ -86,7 +86,6 @@ func (l *LRUCache) Get(headerValue string) (*types.Endpoint, error) {
 
 	if n, ok := l.buf[headerValue]; ok {
 		l.moveToHead(n)
-		logger.Debugf("get from lru buffer, headerValue: %s, endpoint: %v", headerValue, n.Endpoint)
 		return n.Endpoint, nil
 	}
 	endpoint, err := store.MustStore().GetCustomRoute(l.selectorName, headerValue)
