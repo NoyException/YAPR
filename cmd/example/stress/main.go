@@ -9,6 +9,7 @@ import (
 	"noy/router/pkg/yapr/logger"
 	"noy/router/pkg/yapr/metrics"
 	"runtime"
+	"sync"
 	"time"
 )
 
@@ -19,14 +20,15 @@ var (
 	configPath  = flag.String("configPath", "yapr.yaml", "config file path")
 	id          = flag.Int("id", 1, "server id, must be unique")
 	concurrency = flag.Int("concurrency", 200, "goroutines")
-	qps         = flag.Int("qps", 100000, "qps")
+	totalReq    = flag.Int("totalReq", 10000000, "total request")
+	cpus        = flag.Int("cpus", 2, "cpus")
 
 	name string
 )
 
 func main() {
-	runtime.GOMAXPROCS(4)
 	flag.Parse()
+	runtime.GOMAXPROCS(*cpus)
 	name = fmt.Sprintf("cli-%d", *id)
 
 	logger.ReplaceDefault(logger.NewWithLogFile(logger.InfoLevel, fmt.Sprintf("/.logs/cli-%d.log", *id)))
@@ -46,10 +48,17 @@ func main() {
 		uids[i] = fmt.Sprintf("%d", uid)
 	}
 
+	go metrics.Init(8080, true)
+	wg := &sync.WaitGroup{}
+
+	now := time.Now()
 	for i := 0; i < *concurrency; i++ {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			//ticker := time.NewTicker(time.Duration(1000000**concurrency / *qps) * time.Microsecond)
-			for {
+			maxJ := *totalReq / *concurrency
+			for j := 0; j < maxJ; j++ {
 				uid := uids[rand.Intn(len(uids))]
 				// 记录用时
 				start := time.Now()
@@ -73,5 +82,6 @@ func main() {
 		}()
 	}
 
-	metrics.Init(8080)
+	wg.Wait()
+	fmt.Printf("total cost: %v, qps: %v\n", time.Since(now), float64(*totalReq)/time.Since(now).Seconds())
 }

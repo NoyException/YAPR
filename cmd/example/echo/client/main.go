@@ -100,7 +100,7 @@ func main() {
 		}()
 	}
 
-	metrics.Init(8080)
+	metrics.Init(8080, false)
 }
 
 func createData(size string) (*echopb.EchoRequest, error) {

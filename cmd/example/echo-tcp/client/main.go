@@ -189,7 +189,7 @@ func main() {
 		}()
 	}
 
-	metrics.Init(8080)
+	metrics.Init(8080, false)
 }
 
 func Send(uid string, data []byte) {

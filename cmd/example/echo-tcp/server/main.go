@@ -49,7 +49,7 @@ func main() {
 		logger.Infof("migration: %s, %s, %v, %v", selectorName, headerValue, from, to)
 	})
 
-	go metrics.Init(8080 + *id)
+	go metrics.Init(8080+*id, false)
 
 	endpoints := make([]*types.Endpoint, 0)
 

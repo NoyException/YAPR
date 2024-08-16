@@ -68,7 +68,7 @@ func main() {
 		}
 	}()
 
-	go metrics.Init(8080 + *id)
+	go metrics.Init(8080+*id, false)
 	if *id == 1 {
 		go normalServer()
 	}
