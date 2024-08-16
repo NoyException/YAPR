@@ -28,9 +28,10 @@ var (
 	id          = flag.Int("id", 1, "server id, must be unique")
 	conns       = flag.Int("conns", 8, "concurrent connections")
 	concurrency = flag.Int("concurrency", 200, "goroutines")
-	qps         = flag.Int("qps", 100000, "qps")
+	totalReq    = flag.Int("totalReq", 10000000, "total request")
 	dataSize    = flag.String("dataSize", "100B", "data size")
 	useYapr     = flag.Bool("useYapr", true, "use yapr")
+	cpus        = flag.Int("cpus", 4, "cpus")
 
 	name string
 
@@ -129,8 +130,8 @@ func (c *Client) Send(message []byte) ([]byte, error) {
 }
 
 func main() {
-	runtime.GOMAXPROCS(4)
 	flag.Parse()
+	runtime.GOMAXPROCS(*cpus)
 	name = fmt.Sprintf("cli-%d", *id)
 
 	logger.ReplaceDefault(logger.NewWithLogFile(logger.InfoLevel, fmt.Sprintf("/.logs/cli-%d.log", *id)))
@@ -142,8 +143,7 @@ func main() {
 	}()
 
 	sdk = yaprsdk.Init(*configPath)
-
-	time.Sleep(1000 * time.Millisecond)
+	go metrics.Init(8080, false)
 
 	directTargets := make([]string, 0)
 	if !*useYapr {
@@ -161,15 +161,19 @@ func main() {
 		uids[i] = fmt.Sprintf("%d", uid)
 	}
 
+	wg := new(sync.WaitGroup)
+	now := time.Now()
 	for i := 0; i < *concurrency; i++ {
+		wg.Add(1)
 		go func() {
-			ticker := time.NewTicker(time.Duration(1000000**concurrency / *qps) * time.Microsecond)
+			defer wg.Done()
 			data, err := createData(*dataSize)
 			if err != nil {
 				logger.Errorf(err.Error())
 				return
 			}
-			for {
+			maxJ := *totalReq / *concurrency
+			for j := 0; j < maxJ; j++ {
 				uid := uids[rand.Intn(len(uids))]
 				// 记录用时
 				start := time.Now()
@@ -184,12 +188,12 @@ func main() {
 				if err != nil {
 					logger.Errorf(err.Error())
 				}
-				<-ticker.C
 			}
 		}()
 	}
 
-	metrics.Init(8080, false)
+	wg.Wait()
+	logger.Infof("total cost: %v, qps: %v", time.Since(now), float64(*totalReq)/time.Since(now).Seconds())
 }
 
 func Send(uid string, data []byte) {
@@ -263,14 +267,14 @@ func SendDirect(target string, uid string, data []byte) {
 		logger.Errorf("get client failed: %v", err)
 		return
 	}
-	d2, err := client.Send(d.Marshal())
+	_, err = client.Send(d.Marshal())
 	if err != nil {
 		logger.Errorf("send failed: %v", err)
 	}
-	unmarshalData := echo_tcp.UnmarshalData(d2)
-	if unmarshalData.Err != nil {
-		logger.Errorf("response error: %v", unmarshalData.Err)
-	}
+	//unmarshalData := echo_tcp.UnmarshalData(d2)
+	//if unmarshalData.Err != nil {
+	//	logger.Errorf("response error: %v", unmarshalData.Err)
+	//}
 	//logger.Infof("response: %s", string(unmarshalData.Data))
 }
 
