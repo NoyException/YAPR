@@ -22,11 +22,7 @@ type Endpoint struct {
 }
 
 func (e *Endpoint) String() string {
-	port := ""
-	if e.Port != 0 {
-		port = fmt.Sprintf("%d", e.Port)
-	}
-	return fmt.Sprintf("%s#%s#%s", e.IP, e.Pod, port)
+	return fmt.Sprintf("%s#%s#%d", e.IP, e.Pod, e.Port)
 }
 
 func EndpointFromString(s string) *Endpoint {
@@ -34,14 +30,11 @@ func EndpointFromString(s string) *Endpoint {
 	if len(parts) != 3 {
 		return nil
 	}
-	port := uint32(0)
-	if parts[2] != "" {
-		portInt, err := strconv.Atoi(parts[2])
-		if err != nil {
-			return nil
-		}
-		port = uint32(portInt)
+	portInt, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return nil
 	}
+	port := uint32(portInt)
 	return &Endpoint{
 		IP:   parts[0],
 		Pod:  parts[1],

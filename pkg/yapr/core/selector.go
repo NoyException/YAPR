@@ -125,7 +125,7 @@ func (s *Selector) Select(target *types.MatchTarget) (endpoint *types.Endpoint, 
 
 	headers = s.baseHeaders()
 	endpoint, appendHeaders, err := s.strategy.Select(target)
-	if endpoint != nil && err == nil && !s.MustService().IsAvailable(endpoint) {
+	if endpoint != nil && err == nil && !service.IsAvailable(endpoint) {
 		err = errcode.ErrEndpointUnavailable
 	}
 	if appendHeaders != nil {

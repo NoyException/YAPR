@@ -147,9 +147,20 @@ func (y *YaprSDK) SetCustomRoute(selectorName, headerValue string, endpoint *typ
 }
 
 // GetEndpoints 获取路由配置，用于自定义路由
-func (y *YaprSDK) GetEndpoints(selectorName string) map[types.Endpoint]*types.Attribute {
+func (y *YaprSDK) GetEndpoints(serviceName string) []*types.Endpoint {
+	service, err := core.GetService(serviceName)
+	if err != nil {
+		logger.Errorf("get service failed: %v", err)
+		return nil
+	}
+	return service.Endpoints()
+}
+
+// GetEndpointsWithAttribute 获取路由配置，用于自定义路由
+func (y *YaprSDK) GetEndpointsWithAttribute(selectorName string) map[types.Endpoint]*types.Attribute {
 	selector, err := core.GetSelector(selectorName)
 	if err != nil {
+		logger.Errorf("get selector failed: %v", err)
 		return nil
 	}
 	return selector.EndpointsWithAttribute()

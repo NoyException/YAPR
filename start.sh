@@ -32,8 +32,8 @@ trap cleanup SIGINT
 cleanup() {
     echo "Cleaning up..."
     set +e
-    killall client
-    killall server
+    killall -9 client
+    killall -9 server
     docker-compose down
 }
 

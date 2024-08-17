@@ -15,8 +15,10 @@ import (
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
 	"noy/router/pkg/yapr/metrics"
+	"os"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -26,9 +28,8 @@ var (
 	// 统一参数
 	configPath  = flag.String("configPath", "yapr.yaml", "config file path")
 	id          = flag.Int("id", 1, "server id, must be unique")
-	conns       = flag.Int("conns", 8, "concurrent connections")
 	concurrency = flag.Int("concurrency", 200, "goroutines")
-	totalReq    = flag.Int("totalReq", 10000000, "total request")
+	totalReq    = flag.Int("totalReq", 2000000, "total request")
 	dataSize    = flag.String("dataSize", "100B", "data size")
 	useYapr     = flag.Bool("useYapr", true, "use yapr")
 	cpus        = flag.Int("cpus", 4, "cpus")
@@ -38,37 +39,19 @@ var (
 	clientMap = new(sync.Map)
 )
 
-type ClientPool struct {
-	clients []*Client
-}
-
-func NewClientPool(addr string, size int) (*ClientPool, error) {
-	pool := &ClientPool{
-		clients: make([]*Client, size),
-	}
-	for i := 0; i < size; i++ {
-		client, err := NewClient(addr)
-		if err != nil {
-			return nil, err
-		}
-		pool.clients[i] = client
-	}
-	return pool, nil
-}
-
-func (p *ClientPool) GetAvailableClient() (*Client, error) {
-	for _, client := range p.clients {
-		if !client.busy {
-			return client, nil
-		}
-	}
-	return nil, errors.New("no available clients")
+type Request struct {
+	id       uint32
+	Data     []byte
+	Response chan []byte
 }
 
 type Client struct {
-	conn net.Conn
-	mu   sync.Mutex
-	busy bool
+	conn      net.Conn
+	reader    *bufio.Reader
+	sendQueue chan *Request
+
+	pendingRequests sync.Map
+	id              uint32
 }
 
 func NewClient(addr string) (*Client, error) {
@@ -76,57 +59,76 @@ func NewClient(addr string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{
-		conn: conn,
-	}, nil
+	client := &Client{
+		conn:      conn,
+		reader:    bufio.NewReader(conn),
+		sendQueue: make(chan *Request, 100),
+	}
+	go func() {
+		for request := range client.sendQueue {
+			buf := make([]byte, 4)
+			binary.LittleEndian.PutUint32(buf, request.id)
+			client.conn.Write(buf)
+			client.conn.Write(request.Data)
+		}
+	}()
+	go func() {
+		for {
+			idBuf := make([]byte, 4)
+			_, err := io.ReadFull(client.reader, idBuf)
+			if err != nil {
+				if errors.Is(err, net.ErrClosed) {
+					close(client.sendQueue)
+					return
+				}
+				logger.Errorf("read id failed: %v", err)
+				return
+			}
+			rid := binary.LittleEndian.Uint32(idBuf)
+			request, loaded := client.pendingRequests.LoadAndDelete(rid)
+			if request == nil || !loaded {
+				logger.Errorf("request not found: %d", rid)
+				return
+			}
+
+			sizeBuf := make([]byte, 4)
+			_, err = io.ReadFull(client.reader, sizeBuf)
+			if err != nil {
+				logger.Errorf("read size failed: %v", err)
+				return
+			}
+			size := binary.LittleEndian.Uint32(sizeBuf)
+			data := make([]byte, size)
+			_, err = io.ReadFull(client.reader, data)
+			if err != nil {
+				logger.Errorf("read data failed: %v", err)
+				return
+			}
+			req := request.(*Request)
+			req.Response <- data
+		}
+	}()
+	return client, nil
 }
 
 func (c *Client) Send(message []byte) ([]byte, error) {
-	c.busy = true
-	c.mu.Lock()
-	defer func() {
-		c.mu.Unlock()
-		c.busy = false
-	}()
-
-	// Send the length of the data
-	var lengthBuf [4]byte
-	binary.LittleEndian.PutUint32(lengthBuf[:], uint32(len(message)))
-	_, err := c.conn.Write(lengthBuf[:])
+	buf := bytes.Buffer{}
+	err := binary.Write(&buf, binary.LittleEndian, uint32(len(message)))
 	if err != nil {
-		//return nil, fmt.Errorf("failed to write length: %v", err)
-		panic(err)
+		return nil, err
 	}
-
-	// Send the data
-	_, err = c.conn.Write(message)
+	err = binary.Write(&buf, binary.LittleEndian, message)
 	if err != nil {
-		//return nil, fmt.Errorf("failed to write data: %v", err)
-		panic(err)
+		return nil, err
 	}
-
-	reader := bufio.NewReader(c.conn)
-
-	// Read the length of the response data
-	_, err = io.ReadFull(reader, lengthBuf[:])
-	if err != nil {
-		if err == io.EOF {
-			return nil, fmt.Errorf("connection closed")
-		}
-		logger.Errorf("Failed to read length: %v", err)
-		panic(err)
+	request := &Request{
+		id:       atomic.AddUint32(&c.id, 1),
+		Data:     buf.Bytes(),
+		Response: make(chan []byte, 1),
 	}
-	length := binary.LittleEndian.Uint32(lengthBuf[:])
-
-	// Read the response data
-	response := make([]byte, length)
-	_, err = io.ReadFull(reader, response)
-	if err != nil {
-		//return nil, fmt.Errorf("failed to read data: %v", err)
-		panic(err)
-	}
-
-	return response, nil
+	c.pendingRequests.Store(request.id, request)
+	c.sendQueue <- request
+	return <-request.Response, nil
 }
 
 func main() {
@@ -143,15 +145,19 @@ func main() {
 	}()
 
 	sdk = yaprsdk.Init(*configPath)
-	go metrics.Init(8080, false)
+	go metrics.Init(8080, true)
 
-	directTargets := make([]string, 0)
-	if !*useYapr {
-		endpoints := sdk.GetEndpoints("echo-rand")
-		logger.Infof("size of endpoints: %d", len(endpoints))
-		for endpoint := range endpoints {
-			directTargets = append(directTargets, fmt.Sprintf("%s:%d", endpoint.IP, endpoint.Port))
+	endpoints := sdk.GetEndpoints("echosvr")
+	addrs := make([]string, 0)
+	logger.Infof("size of endpoints: %d", len(endpoints))
+	for _, endpoint := range endpoints {
+		addr := fmt.Sprintf("%s:%d", endpoint.IP, endpoint.Port)
+		addrs = append(addrs, addr)
+		client, err := NewClient(addr)
+		if err != nil {
+			panic(err)
 		}
+		clientMap.Store(addr, client)
 	}
 
 	playerCnt := 1000
@@ -180,7 +186,7 @@ func main() {
 				if *useYapr {
 					Send(uid, data)
 				} else {
-					target := directTargets[rand.Intn(len(directTargets))]
+					target := addrs[rand.Intn(len(addrs))]
 					SendDirect(target, uid, data)
 				}
 				metrics.ObserveRequestDuration("echo", time.Since(start).Seconds())
@@ -193,7 +199,16 @@ func main() {
 	}
 
 	wg.Wait()
+	clientMap.Range(func(key, value any) bool {
+		client := value.(*Client)
+		err := client.conn.Close()
+		if err != nil {
+			logger.Errorf("close conn failed: %v", err)
+		}
+		return true
+	})
 	logger.Infof("total cost: %v, qps: %v", time.Since(now), float64(*totalReq)/time.Since(now).Seconds())
+	os.Exit(0)
 }
 
 func Send(uid string, data []byte) {
@@ -206,29 +221,19 @@ func Send(uid string, data []byte) {
 	}
 	err := sdk.Invoke("echo", match, func(serviceName string, endpoint *types.Endpoint, port uint32, headers map[string]string) error {
 		addr := fmt.Sprintf("%s:%d", endpoint.IP, port)
-		var clientPool *ClientPool
-		rawPool, ok := clientMap.Load(addr)
+		rawClient, ok := clientMap.Load(addr)
 		if !ok {
-			var err error
-			clientPool, err = NewClientPool(addr, *conns)
-			if err != nil {
-				return err
-			}
-			clientMap.Store(addr, clientPool)
-		} else {
-			clientPool = rawPool.(*ClientPool)
+			logger.Errorf("client not found: %s", addr)
+			panic("client not found")
 		}
+		client := rawClient.(*Client)
+
 		headers["x-uid"] = uid
 		d := &echo_tcp.Data{
 			Headers: headers,
 			Data:    data,
 		}
-		client, err := clientPool.GetAvailableClient()
-		if err != nil {
-			logger.Errorf("get client failed: %v", err)
-			return err
-		}
-		_, err = client.Send(d.Marshal())
+		_, err := client.Send(d.Marshal())
 		if err != nil {
 			return err
 		}
@@ -243,39 +248,23 @@ func Send(uid string, data []byte) {
 
 func SendDirect(target string, uid string, data []byte) {
 	addr := target
-	var clientPool *ClientPool
-	rawPool, ok := clientMap.Load(addr)
+	rawClient, ok := clientMap.Load(addr)
 	if !ok {
-		var err error
-		clientPool, err = NewClientPool(addr, *conns)
-		if err != nil {
-			logger.Errorf("new client pool failed: %v", err)
-			return
-		}
-		clientMap.Store(addr, clientPool)
-	} else {
-		clientPool = rawPool.(*ClientPool)
+		logger.Errorf("client not found")
+		return
 	}
+	client := rawClient.(*Client)
+
 	d := &echo_tcp.Data{
 		Headers: map[string]string{
 			"x-uid": uid,
 		},
 		Data: data,
 	}
-	client, err := clientPool.GetAvailableClient()
-	if err != nil {
-		logger.Errorf("get client failed: %v", err)
-		return
-	}
-	_, err = client.Send(d.Marshal())
+	_, err := client.Send(d.Marshal())
 	if err != nil {
 		logger.Errorf("send failed: %v", err)
 	}
-	//unmarshalData := echo_tcp.UnmarshalData(d2)
-	//if unmarshalData.Err != nil {
-	//	logger.Errorf("response error: %v", unmarshalData.Err)
-	//}
-	//logger.Infof("response: %s", string(unmarshalData.Data))
 }
 
 func createData(size string) ([]byte, error) {

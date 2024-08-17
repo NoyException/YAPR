@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/binary"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -111,70 +112,112 @@ func main() {
 	}
 }
 
-func handleConnection(conn net.Conn) {
-	defer conn.Close()
-	reader := bufio.NewReader(conn)
+type Response struct {
+	id   uint32
+	data []byte
+	sent func()
+}
 
-	for {
-		// Read the length of the incoming data
-		var lengthBuf [4]byte
-		_, err := io.ReadFull(reader, lengthBuf[:])
-		if err != nil {
-			if err == io.EOF {
-				//logger.Warnf("Connection closed")
+type Server struct {
+	reader    *bufio.Reader
+	responses chan *Response
+}
+
+func handleConnection(conn net.Conn) *Server {
+	server := &Server{
+		reader:    bufio.NewReader(conn),
+		responses: make(chan *Response, 100),
+	}
+
+	go func() {
+		for {
+			response := &Response{}
+
+			idBuf := make([]byte, 4)
+			_, err := io.ReadFull(server.reader, idBuf)
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					close(server.responses)
+					return
+				}
+				logger.Errorf("read id failed: %v", err)
 				return
 			}
-			logger.Errorf("Failed to read length: %v", err)
-			return
-		}
-		length := int32(binary.LittleEndian.Uint32(lengthBuf[:]))
+			response.id = binary.LittleEndian.Uint32(idBuf)
 
-		if length > 65536 {
-			logger.Errorf("length too large: %d", length)
-			return
-		}
-		// Read the data based on the length
-		data := make([]byte, length)
-		_, err = io.ReadFull(reader, data)
-		if err != nil {
-			logger.Errorf("Failed to read data: %v", err)
-			return
-		}
+			// Read the length of the incoming data
+			var lengthBuf [4]byte
+			_, err = io.ReadFull(server.reader, lengthBuf[:])
+			if err != nil {
+				if err == io.EOF {
+					//logger.Warnf("Connection closed")
+					return
+				}
+				logger.Errorf("Failed to read length: %v", err)
+				return
+			}
+			length := int32(binary.LittleEndian.Uint32(lengthBuf[:]))
 
-		d := echo_tcp.UnmarshalData(data)
-		sent, err := sdk.OnRequestReceived(d.Headers)
-		d.Err = err
-		// 业务逻辑：当自定义路由没设置时，使用随机路由路由到了这里，于是设置自定义路由永远路由到这里
-		//if d.Headers["yapr-strategy"] == types.StrategyRandom {
-		//	rawEndpoint := d.Headers["yapr-endpoint"]
-		//	uid := d.Headers["x-uid"]
-		//	endpoint := types.EndpointFromString(rawEndpoint)
-		//	_, _, err := sdk.SetCustomRoute("echo-dir", uid, endpoint, 0, false)
-		//	if err != nil {
-		//		logger.Errorf("SetCustomRoute error: %v", err)
-		//	} else {
-		//		logger.Infof("SetCustomRoute: %s, %s", uid, endpoint)
-		//	}
-		//}
-		response := d.Marshal()
+			if length > 65536 {
+				logger.Errorf("length too large: %d", length)
+				return
+			}
+			// Read the data based on the length
+			data := make([]byte, length)
+			_, err = io.ReadFull(server.reader, data)
+			if err != nil {
+				logger.Errorf("Failed to read data: %v", err)
+				return
+			}
 
-		// Send the length of the response data
-		binary.LittleEndian.PutUint32(lengthBuf[:], uint32(len(response)))
-		_, err = conn.Write(lengthBuf[:])
-		if err != nil {
-			logger.Errorf("Failed to write length: %v", err)
-			return
+			d := echo_tcp.UnmarshalData(data)
+			response.sent, err = sdk.OnRequestReceived(d.Headers)
+			d.Err = err
+			// 业务逻辑：当自定义路由没设置时，使用随机路由路由到了这里，于是设置自定义路由永远路由到这里
+			//if d.Headers["yapr-strategy"] == types.StrategyRandom {
+			//	rawEndpoint := d.Headers["yapr-endpoint"]
+			//	uid := d.Headers["x-uid"]
+			//	endpoint := types.EndpointFromString(rawEndpoint)
+			//	_, _, err := sdk.SetCustomRoute("echo-dir", uid, endpoint, 0, false)
+			//	if err != nil {
+			//		logger.Errorf("SetCustomRoute error: %v", err)
+			//	} else {
+			//		logger.Infof("SetCustomRoute: %s, %s", uid, endpoint)
+			//	}
+			//}
+			response.data = d.Marshal()
+			server.responses <- response
 		}
+	}()
 
-		// Send the response data
-		_, err = conn.Write(response)
-		if err != nil {
-			logger.Errorf("Failed to write data: %v", err)
-			return
+	go func() {
+		for response := range server.responses {
+			idBuf := make([]byte, 4)
+			binary.LittleEndian.PutUint32(idBuf, response.id)
+			_, err := conn.Write(idBuf)
+			if err != nil {
+				logger.Errorf("Failed to write id: %v", err)
+				return
+			}
+			// Send the length of the response data
+			var lengthBuf [4]byte
+			binary.LittleEndian.PutUint32(lengthBuf[:], uint32(len(response.data)))
+			_, err = conn.Write(lengthBuf[:])
+			if err != nil {
+				logger.Errorf("Failed to write length: %v", err)
+				return
+			}
+			// Send the response data
+			_, err = conn.Write(response.data)
+			if err != nil {
+				logger.Errorf("Failed to write data: %v", err)
+				return
+			}
+			if response.sent != nil {
+				response.sent()
+			}
 		}
+	}()
 
-		if sent != nil {
-			sent()
-		}
-	}
+	return server
 }
