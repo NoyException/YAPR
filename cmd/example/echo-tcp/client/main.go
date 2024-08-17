@@ -62,7 +62,7 @@ func NewClient(addr string) (*Client, error) {
 	client := &Client{
 		conn:      conn,
 		reader:    bufio.NewReader(conn),
-		sendQueue: make(chan *Request, 100),
+		sendQueue: make(chan *Request, 1000),
 	}
 	go func() {
 		for request := range client.sendQueue {

@@ -126,7 +126,7 @@ type Server struct {
 func handleConnection(conn net.Conn) *Server {
 	server := &Server{
 		reader:    bufio.NewReader(conn),
-		responses: make(chan *Response, 100),
+		responses: make(chan *Response, 1000),
 	}
 
 	go func() {

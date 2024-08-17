@@ -19,6 +19,7 @@ type Selector struct {
 	lastVersion uint64
 	lastUpdate  time.Time
 	service     *Service
+	strategyMu  sync.RWMutex
 	strategy    strategy.Strategy
 }
 
@@ -114,7 +115,10 @@ func (s *Selector) Select(target *types.MatchTarget) (endpoint *types.Endpoint, 
 		if version > s.lastVersion {
 			s.mu.Lock()
 			if version > s.lastVersion {
+				s.strategyMu.Lock()
 				s.strategy.Update(s.EndpointsWithAttribute(s.strategy.EndpointFilters()...))
+				s.strategyMu.Unlock()
+
 				s.lastVersion = version
 				s.lastUpdate = time.Now()
 				metrics.IncUpdateSelectorCnt(s.Strategy)
@@ -124,7 +128,9 @@ func (s *Selector) Select(target *types.MatchTarget) (endpoint *types.Endpoint, 
 	}
 
 	headers = s.baseHeaders()
+	s.strategyMu.RLock()
 	endpoint, appendHeaders, err := s.strategy.Select(target)
+	s.strategyMu.RUnlock()
 	if endpoint != nil && err == nil && !service.IsAvailable(endpoint) {
 		err = errcode.ErrEndpointUnavailable
 	}
