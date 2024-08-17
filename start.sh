@@ -31,6 +31,9 @@ CGO_ENABLED=0 go build -o client ../cmd/example/echo/client/main.go
 trap cleanup SIGINT
 cleanup() {
     echo "Cleaning up..."
+    set +e
+    killall client
+    killall server
     docker-compose down
 }
 

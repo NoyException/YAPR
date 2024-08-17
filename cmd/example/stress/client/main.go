@@ -8,8 +8,11 @@ import (
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
 	"noy/router/pkg/yapr/metrics"
+	"os"
+	"os/signal"
 	"runtime"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -21,7 +24,7 @@ var (
 	id          = flag.Int("id", 1, "server id, must be unique")
 	concurrency = flag.Int("concurrency", 200, "goroutines")
 	totalReq    = flag.Int("totalReq", 10000000, "total request")
-	cpus        = flag.Int("cpus", 2, "cpus")
+	cpus        = flag.Int("cpus", 4, "cpus")
 
 	name string
 )
@@ -37,6 +40,15 @@ func main() {
 		if err != nil {
 			fmt.Printf("sync logger error: %v", err)
 		}
+	}()
+
+	// 捕获 SIGTERM 信号
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		<-sigChan
+		logger.Infof("Received shutdown signal, performing cleanup...")
+		os.Exit(0)
 	}()
 
 	sdk = yaprsdk.Init(*configPath)

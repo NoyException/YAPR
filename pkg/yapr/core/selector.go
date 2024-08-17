@@ -18,6 +18,7 @@ type Selector struct {
 	mu          sync.Mutex
 	lastVersion uint64
 	lastUpdate  time.Time
+	service     *Service
 	strategy    strategy.Strategy
 }
 
@@ -46,11 +47,19 @@ func GetSelector(name string) (*Selector, error) {
 }
 
 func (s *Selector) MustService() *Service {
-	service, err := GetService(s.Service)
-	if err != nil {
-		panic(err)
+	if s.service != nil {
+		return s.service
 	}
-	return service
+	s.mu.Lock()
+	if s.service == nil {
+		service, err := GetService(s.Service)
+		if err != nil {
+			panic(err)
+		}
+		s.service = service
+	}
+	s.mu.Unlock()
+	return s.service
 }
 
 func (s *Selector) NotifyRetry(headerValue string) {
@@ -87,24 +96,31 @@ func (s *Selector) Select(target *types.MatchTarget) (endpoint *types.Endpoint, 
 		metrics.ObserveSelectorDuration(s.Strategy, time.Since(start).Seconds())
 	}()
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	service := s.MustService()
 	if s.strategy == nil {
-		s.strategy, err = GetStrategy(s)
-		if err != nil {
-			logger.Errorf("get strategy %s failed: %v", s.Strategy, err)
-			return nil, nil, err
+		s.mu.Lock()
+		if s.strategy == nil {
+			s.strategy, err = GetStrategy(s)
+			if err != nil {
+				logger.Errorf("get strategy %s failed: %v", s.Strategy, err)
+				return nil, nil, err
+			}
 		}
+		s.mu.Unlock()
 	}
 
-	service := s.MustService()
-	version := service.Version()
-	if s.lastVersion < version && time.Since(s.lastUpdate) > 100*time.Millisecond {
-		s.strategy.Update(s.EndpointsWithAttribute(s.strategy.EndpointFilters()...))
-		s.lastVersion = version
-		s.lastUpdate = time.Now()
-		metrics.IncUpdateSelectorCnt(s.Strategy)
+	if time.Since(s.lastUpdate) > 100*time.Millisecond {
+		version := service.Version()
+		if version > s.lastVersion {
+			s.mu.Lock()
+			if version > s.lastVersion {
+				s.strategy.Update(s.EndpointsWithAttribute(s.strategy.EndpointFilters()...))
+				s.lastVersion = version
+				s.lastUpdate = time.Now()
+				metrics.IncUpdateSelectorCnt(s.Strategy)
+			}
+			s.mu.Unlock()
+		}
 	}
 
 	headers = s.baseHeaders()

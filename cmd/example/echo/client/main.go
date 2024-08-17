@@ -52,7 +52,6 @@ func main() {
 	// 捕获 SIGTERM 信号
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
-
 	go func() {
 		<-sigChan
 		logger.Infof("Received shutdown signal, performing cleanup...")
@@ -62,7 +61,6 @@ func main() {
 	sdk := yaprsdk.Init(*configPath)
 
 	var clients []echopb.EchoServiceClient
-
 	target := "yapr:///echo"
 	if !*useYapr {
 		target = "9.134.60.182:23332"
