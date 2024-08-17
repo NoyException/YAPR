@@ -19,3 +19,4 @@ sh start.sh -s 路由策略名
 - least_request 最小请求数
 - hash_ring 哈希环
 - direct 动态键值路由
+- custom_lua 自定义lua脚本

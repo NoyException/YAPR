@@ -1,0 +1,56 @@
+# etcd 集群配置
+etcd:
+  endpoints:
+    - localhost:2379
+  dialTimeout: 5s
+  username: ""
+  password: ""
+
+# redis 集群配置
+redis:
+  url: "redis://:noy@localhost:6379"
+
+# yapr 配置
+yapr:
+  # 版本号增加时会更新数据库
+  version: 2.0
+  routers:
+    - name: "echo"
+      rules:
+        - matchers:
+            - uri: ".*/Echo"
+              port: 9090
+          selector: "echo-dir"
+          catch:
+            no_endpoint:
+              solution: "pass"
+            unavailable:
+              solution: "block"
+              timeout: 5.0
+            default:
+              solution: "throw"
+              message: "known error"
+              code: 500
+        - matchers:
+            - uri: ".*/Echo"
+          selector: "echo-rr"
+
+  selectors:
+    - name: "echo-dir"
+      service: "echosvr"
+      port: 9090
+      key: "x-uid"
+      strategy: "direct"
+      cache_size: 3
+      cache_type: "lru"
+
+    - name: "echo-rr"
+      service: "echosvr"
+      port: 9090
+      strategy: "round_robin"
+
+    - name: "shard"
+      service: "echosvr"
+      port: 9090
+      strategy: "custom"
+      script: "/app/shard.lua"

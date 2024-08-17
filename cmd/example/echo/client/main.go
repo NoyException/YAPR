@@ -78,8 +78,10 @@ func main() {
 		clients = append(clients, echopb.NewEchoServiceClient(conn))
 	}
 
-	uids := make([]string, 100000)
-	for i := 0; i < 100000; i++ {
+	time.Sleep(1 * time.Second)
+
+	uids := make([]string, 5)
+	for i := 0; i < len(uids); i++ {
 		uid := 1000000 + i
 		uids[i] = fmt.Sprintf("%d", uid)
 	}
@@ -105,7 +107,7 @@ func main() {
 				if err != nil {
 					logger.Errorf(err.Error())
 				} else {
-					logger.Debugf(response.Message)
+					logger.Debugf("UID-%s: %s", uid, response.Message)
 				}
 				time.Sleep(time.Duration(*interval) * time.Millisecond)
 				cancel()

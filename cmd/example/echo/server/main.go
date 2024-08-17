@@ -57,7 +57,7 @@ func (e *EchoServer) Echo(ctx context.Context, request *echopb.EchoRequest) (*ec
 	if *handleTime > 0 {
 		time.Sleep(time.Duration(*handleTime) * time.Millisecond)
 	}
-	return &echopb.EchoResponse{Message: name + ": " + request.Message}, nil
+	return &echopb.EchoResponse{Message: "[" + name + "] " + request.Message}, nil
 }
 
 func main() {

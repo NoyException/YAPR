@@ -1,0 +1,30 @@
+# etcd 集群配置
+etcd:
+  endpoints:
+    - localhost:2379
+  dialTimeout: 5s
+  username: ""
+  password: ""
+
+# redis 集群配置
+redis:
+  url: "redis://:noy@localhost:6379"
+
+# yapr 配置
+yapr:
+  # 版本号增加时会更新数据库
+  version: 2.0
+  routers:
+    - name: "echo"
+      rules:
+        - matchers:
+            - uri: ".*/Echo"
+              port: 9090
+          selector: "echo-lua"
+
+  selectors:
+    - name: "echo-lua"
+      service: "echosvr"
+      port: 9090
+      strategy: "custom_lua"
+      script: "./custom.lua"

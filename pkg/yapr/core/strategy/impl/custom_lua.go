@@ -5,6 +5,7 @@ import (
 	"noy/router/pkg/yapr/core/errcode"
 	"noy/router/pkg/yapr/core/strategy"
 	"noy/router/pkg/yapr/core/types"
+	"noy/router/pkg/yapr/logger"
 )
 
 type CustomLuaStrategyBuilder struct{}
@@ -48,6 +49,7 @@ func (r *CustomLuaStrategy) Select(match *types.MatchTarget) (*types.Endpoint, m
 		return nil, nil, errcode.ErrNoEndpointAvailable
 	}
 	if idx < 0 || idx >= len(r.endpoints) {
+		logger.Errorf("idx: %v, len: %v", idx, len(r.endpoints))
 		return nil, nil, errcode.ErrLuaIndexOutOfRange
 	}
 	//TODO: 从lua中获取header

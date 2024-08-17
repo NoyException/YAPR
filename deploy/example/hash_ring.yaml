@@ -1,0 +1,27 @@
+# etcd 集群配置
+etcd:
+  endpoints:
+    - localhost:2379
+  dialTimeout: 5s
+  username: ""
+  password: ""
+
+# redis 集群配置
+redis:
+  url: "redis://:noy@localhost:6379"
+
+# yapr 配置
+yapr:
+  version: 1.0
+  routers:
+    - name: "echo"
+      rules:
+        - matchers:
+            - uri: ".*/Echo"
+          selector: "echo-ring"
+
+  selectors:
+    - name: "echo-ring"
+      service: "echosvr"
+      port: 9090
+      strategy: hash_ring"
