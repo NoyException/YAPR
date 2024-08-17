@@ -215,6 +215,7 @@ func (r *Router) Route(target *types.MatchTarget) (string, *types.Endpoint, uint
 		if endpoint.Port != 0 {
 			port = endpoint.Port
 		}
+		logger.Debugf("select %v by strategy %s", endpoint, selector.Strategy)
 		return selector.Service, endpoint, port, headers, nil
 	}
 	return "", nil, 0, nil, errcode.ErrNoRuleMatched

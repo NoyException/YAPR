@@ -42,7 +42,6 @@ func (y *yaprPicker) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 		return balancer.PickResult{}, err
 	}
 	key := endpoint.IP + ":" + strconv.FormatUint(uint64(port), 10)
-	logger.Debugf("select %v", key)
 	subConn, ok := y.subConns[key]
 	if !ok {
 		logger.Warnf("subConn not found %v", key)

@@ -14,7 +14,10 @@ import (
 	"noy/router/pkg/yapr/core/sdk/client"
 	"noy/router/pkg/yapr/logger"
 	"noy/router/pkg/yapr/metrics"
+	"os"
+	"os/signal"
 	"runtime"
+	"syscall"
 	"time"
 )
 
@@ -23,20 +26,22 @@ var (
 	configPath  = flag.String("configPath", "yapr.yaml", "config file path")
 	id          = flag.Int("id", 1, "server id, must be unique")
 	conns       = flag.Int("conns", 8, "concurrent connections")
-	concurrency = flag.Int("concurrency", 1000, "goroutines")
-	qps         = flag.Int("qps", 100000, "qps")
+	concurrency = flag.Int("concurrency", 1, "goroutines")
+	totalReq    = flag.Int("totalReq", 10000000, "total request")
 	dataSize    = flag.String("dataSize", "100B", "data size")
 	useYapr     = flag.Bool("useYapr", true, "use yapr")
+	interval    = flag.Int("interval", 1000, "interval")
+	cpus        = flag.Int("cpus", 4, "cpus")
 
 	name string
 )
 
 func main() {
-	runtime.GOMAXPROCS(4)
 	flag.Parse()
+	runtime.GOMAXPROCS(*cpus)
 	name = fmt.Sprintf("cli-%d", *id)
 
-	logger.ReplaceDefault(logger.NewWithLogFile(logger.InfoLevel, fmt.Sprintf("/.logs/cli-%d.log", *id)))
+	logger.ReplaceDefault(logger.NewWithLogFile(logger.DebugLevel, fmt.Sprintf("/.logs/cli-%d.log", *id)))
 	defer func() {
 		err := logger.Sync()
 		if err != nil {
@@ -44,7 +49,15 @@ func main() {
 		}
 	}()
 
-	time.Sleep(1000 * time.Millisecond)
+	// 捕获 SIGTERM 信号
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+
+	go func() {
+		<-sigChan
+		logger.Infof("Received shutdown signal, performing cleanup...")
+		os.Exit(0)
+	}()
 
 	sdk := yaprsdk.Init(*configPath)
 
@@ -73,14 +86,14 @@ func main() {
 
 	for i := 0; i < *concurrency; i++ {
 		go func() {
-			ticker := time.NewTicker(time.Duration(1000000**concurrency / *qps) * time.Microsecond)
 			client := clients[i%len(clients)]
 			data, err := createData(*dataSize)
 			if err != nil {
 				logger.Errorf(err.Error())
 				return
 			}
-			for {
+			maxJ := *totalReq / *concurrency
+			for j := 0; j < maxJ; j++ {
 				uid := uids[rand.Intn(len(uids))]
 				ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("x-uid", uid))
 				ctx2, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -94,7 +107,7 @@ func main() {
 				} else {
 					logger.Debugf(response.Message)
 				}
-				<-ticker.C
+				time.Sleep(time.Duration(*interval) * time.Millisecond)
 				cancel()
 			}
 		}()

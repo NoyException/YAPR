@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 var (
@@ -23,11 +24,13 @@ var (
 	configPath   = flag.String("configPath", "yapr.yaml", "config file path")
 	id           = flag.Int("id", 1, "server id, must be unique")
 	ip           = flag.String("ip", "localhost", "node ip address, must be unique")
-	endpointCnt  = flag.Int("endpointCnt", 1000, "endpoint count")
+	endpointCnt  = flag.Int("endpointCnt", 1, "endpoint count")
 	weight       = flag.Int("weight", 1, "default weight for all endpoints")
 	gracefulStop = flag.Bool("gracefulStop", true, "enable graceful stop")
+	handleTime   = flag.Int("handleTime", 0, "handle time")
 
 	name string
+	sdk  *yaprsdk.YaprSDK
 )
 
 type EchoServer struct {
@@ -51,6 +54,9 @@ func (e *EchoServer) Echo(ctx context.Context, request *echopb.EchoRequest) (*ec
 		}
 	}
 	metrics.IncRequestTotal(name, "echo/Echo")
+	if *handleTime > 0 {
+		time.Sleep(time.Duration(*handleTime) * time.Millisecond)
+	}
 	return &echopb.EchoResponse{Message: name + ": " + request.Message}, nil
 }
 
@@ -69,11 +75,11 @@ func main() {
 	}()
 
 	go metrics.Init(8080+*id, false)
-	if *id == 1 {
-		go normalServer()
-	}
+	//if *id == 1 {
+	//	go normalServer()
+	//}
 
-	sdk := yaprsdk.Init(*configPath, name)
+	sdk = yaprsdk.Init(*configPath, name)
 	sdk.SetMigrationListener(func(selectorName, headerValue string, from, to *types.Endpoint) {
 		logger.Infof("migration: %s, %s, %v, %v", selectorName, headerValue, from, to)
 	})
@@ -103,18 +109,6 @@ func main() {
 		}()
 	}
 
-	//logger.Debugf("weight: %d", *weight)
-	//
-	//for _, endpoint := range endpoints {
-	//	time.Sleep(1 * time.Millisecond)
-	//	err := sdk.SetEndpointAttribute(endpoint, "echo-rr", &types.AttributeInSelector{
-	//		Weight: uint32(*weight),
-	//	})
-	//	if err != nil {
-	//		panic(err)
-	//	}
-	//}
-
 	if *gracefulStop {
 		// 捕获 SIGTERM 信号
 		sigChan := make(chan os.Signal, 1)
@@ -133,10 +127,12 @@ func main() {
 	}
 
 	for {
+		logger.Infof("register service with %d endpoints", len(endpoints))
 		ch, err := sdk.RegisterService("echosvr", endpoints)
 		if err != nil {
 			panic(err)
 		}
+		setWeight(endpoints)
 		<-ch
 		err = sdk.UnregisterService("echosvr")
 		if err != nil {
@@ -164,4 +160,17 @@ func normalServer() {
 			panic(err)
 		}
 	}()
+}
+
+func setWeight(endpoints []*types.Endpoint) {
+	logger.Infof("weight: %d", *weight)
+	for _, endpoint := range endpoints {
+		w := uint32(*weight)
+		err := sdk.SetEndpointAttribute(endpoint, "echo-weighted", &types.AttributeInSelector{
+			Weight: &w,
+		})
+		if err != nil {
+			panic(err)
+		}
+	}
 }

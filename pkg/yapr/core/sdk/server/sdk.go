@@ -111,7 +111,9 @@ func (y *YaprSDK) GRPCServerInterceptor(ctx context.Context, req any, info *grpc
 	if err != nil {
 		return nil, err
 	}
-	defer sent()
+	if sent != nil {
+		defer sent()
+	}
 	return handler(ctx, req)
 }
 
@@ -164,28 +166,30 @@ func (y *YaprSDK) OnRequestReceived(headers map[string]string) (onResponseSent f
 	}
 
 	//logger.Infof("selector: %v, endpoint: %v", selectorName, rawEndpoint)
-
 	if shouldReportRPS {
 		key := selectorName + "_" + rawEndpoint
 		actual, _ := y.requestCounter.LoadOrStore(key, &atomic.Int32{})
 		counter := actual.(*atomic.Int32)
 		counter.Add(1)
+		checkUpdate := func() {
+			_, loaded := y.leastRequestReportMark.LoadOrStore(key, struct{}{})
+			if !loaded {
+				go func() {
+					<-time.After(time.Second)
+					y.leastRequestReportMark.Delete(key)
+					err := y.reportRPS(endpoint, selectorName, uint32(counter.Load()))
+					//logger.Infof("report rps: %v->%v", key, counter.Load())
+					if err != nil {
+						logger.Errorf("report rps failed: %v", err)
+					}
+				}()
+			}
+		}
 		onResponseSent = func() {
 			counter.Add(-1)
+			checkUpdate()
 		}
-
-		_, loaded := y.leastRequestReportMark.LoadOrStore(key, struct{}{})
-		if !loaded {
-			go func() {
-				<-time.After(time.Second)
-				y.leastRequestReportMark.Delete(key)
-				err := y.reportRPS(endpoint, selectorName, uint32(counter.Load()))
-				//logger.Infof("report rps: %v->%v", key, counter.Load())
-				if err != nil {
-					logger.Errorf("report rps failed: %v", err)
-				}
-			}()
-		}
+		checkUpdate()
 	}
 	err = nil
 	return

@@ -5,6 +5,7 @@ import (
 	"noy/router/pkg/yapr/core/errcode"
 	"noy/router/pkg/yapr/core/strategy"
 	"noy/router/pkg/yapr/core/types"
+	"noy/router/pkg/yapr/logger"
 )
 
 type LeastRequestStrategyBuilder struct{}
@@ -40,7 +41,7 @@ func (r *LeastRequestStrategy) Select(_ *types.MatchTarget) (*types.Endpoint, ma
 	if rps2p != nil {
 		rps2 = *rps2p
 	}
-	//logger.Debugf("rps1: %v, rps2: %v", rps1, rps2)
+	logger.Debugf("rps from %v: %v, rps from %v: %v", r.endpoints[index1], rps1, r.endpoints[index2], rps2)
 	if rps1 < rps2 {
 		return &r.endpoints[index1], nil, nil
 	} else {
