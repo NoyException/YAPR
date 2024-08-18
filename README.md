@@ -6,6 +6,12 @@ Yet Another Poor Compiler
 
 ### Quick Start
 
+需要提前安装：
+
+- golang >= 1.20
+- docker
+- docker-compose
+
 ##### 演示功能
 
 ```shell
@@ -21,6 +27,7 @@ sh start.sh -s 路由策略名
 - least_request 最小请求数
 - hash_ring 哈希环
 - direct 动态键值路由
+- direct_no_cache 动态键值路由(不使用缓存)
 - custom_lua 自定义lua脚本
 
 ##### 压测

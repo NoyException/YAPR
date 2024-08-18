@@ -3,3 +3,6 @@
 .dbdata
 .logs
 *.db
+deploy/server
+deploy/client
+deploy/yapr.yaml

@@ -1,12 +1,12 @@
 #!/bin/bash
-
+source ~/.bashrc
 set -e
 
 cd deploy
 
 # 读入参数：-s 路由策略
 STRATEGY="random"
-CPUS=4
+CPUS=2
 CONCURRENCY=200
 
 while getopts c:n:s: flag
@@ -37,12 +37,12 @@ cleanup() {
 # 启动docker-compose（etcd+redis+prometheus+grafana）
 docker-compose up -d
 
-echo $CPUS
 # 启动server和client
 ./server --endpointCnt=1000 &
 echo "1000个endpoint注册完毕"
 sleep 1
 echo "压测开始，当前路由策略为${STRATEGY}"
+echo "当前CPU核数为$CPUS"
 ./client --cpus="${CPUS}" --concurrency="${CONCURRENCY}" &
 
 wait

@@ -41,8 +41,6 @@ yapr:
       port: 9090
       key: "x-uid"
       strategy: "direct"
-      cache_size: 100000
-      cache_type: "lru"
 
     - name: "echo-rr"
       service: "echosvr"

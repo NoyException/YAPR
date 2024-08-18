@@ -7,7 +7,7 @@ cd deploy
 # 读入参数：-s 路由策略
 STRATEGY="random"
 DATA_SIZE="100B"
-CPUS=4
+CPUS=2
 CONCURRENCY=200
 USE_YAPR=true
 
@@ -46,6 +46,7 @@ docker-compose up -d
 echo "1000个endpoint注册完毕"
 sleep 2s
 echo "压测开始，当前路由策略为${STRATEGY}"
+echo "当前CPU核数为$CPUS"
 ./client --cpus="${CPUS}" --concurrency="${CONCURRENCY}" --dataSize="${DATA_SIZE}" --useYapr="${USE_YAPR}"
 
 wait
