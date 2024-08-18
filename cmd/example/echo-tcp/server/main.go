@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net"
-	echo_tcp "noy/router/cmd/example/echo-tcp"
-	yaprsdk "noy/router/pkg/yapr/core/sdk/server"
+	"noy/router/cmd/example/echo-tcp"
+	"noy/router/pkg/yapr/core/sdk/server"
 	"noy/router/pkg/yapr/core/types"
 	"noy/router/pkg/yapr/logger"
 	"noy/router/pkg/yapr/metrics"
@@ -24,7 +24,6 @@ var (
 	id           = flag.Int("id", 1, "server id, must be unique")
 	ip           = flag.String("ip", "localhost", "node ip address, must be unique")
 	endpointCnt  = flag.Int("endpointCnt", 1000, "endpoint count")
-	weight       = flag.Int("weight", 1, "default weight for all endpoints")
 	gracefulStop = flag.Bool("gracefulStop", true, "enable graceful stop")
 
 	name string
@@ -174,17 +173,19 @@ func handleConnection(conn net.Conn) *Server {
 			response.sent, err = sdk.OnRequestReceived(d.Headers)
 			d.Err = err
 			// 业务逻辑：当自定义路由没设置时，使用随机路由路由到了这里，于是设置自定义路由永远路由到这里
-			//if d.Headers["yapr-strategy"] == types.StrategyRandom {
-			//	rawEndpoint := d.Headers["yapr-endpoint"]
-			//	uid := d.Headers["x-uid"]
-			//	endpoint := types.EndpointFromString(rawEndpoint)
-			//	_, _, err := sdk.SetCustomRoute("echo-dir", uid, endpoint, 0, false)
-			//	if err != nil {
-			//		logger.Errorf("SetCustomRoute error: %v", err)
-			//	} else {
-			//		logger.Infof("SetCustomRoute: %s, %s", uid, endpoint)
-			//	}
-			//}
+			if _, ok := d.Headers["set-custom-route"]; ok {
+				go func() {
+					rawEndpoint := d.Headers["yapr-endpoint"]
+					uid := d.Headers["x-uid"]
+					endpoint := types.EndpointFromString(rawEndpoint)
+					_, _, err := sdk.SetCustomRoute("echo-dir", uid, endpoint, 0, false)
+					if err != nil {
+						logger.Errorf("SetCustomRoute error: %v", err)
+					} else {
+						logger.Infof("SetCustomRoute: %s, %s", uid, endpoint)
+					}
+				}()
+			}
 			response.data = d.Marshal()
 			server.responses <- response
 		}

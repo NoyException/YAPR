@@ -41,16 +41,12 @@ yapr:
       port: 9090
       key: "x-uid"
       strategy: "direct"
-      cache_size: 3
+      cache_size: 100000
       cache_type: "lru"
 
     - name: "echo-rr"
       service: "echosvr"
       port: 9090
       strategy: "round_robin"
-
-    - name: "shard"
-      service: "echosvr"
-      port: 9090
-      strategy: "custom"
-      script: "/app/shard.lua"
+      headers:
+        "set-custom-route": true
