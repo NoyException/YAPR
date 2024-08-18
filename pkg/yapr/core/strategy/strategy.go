@@ -11,7 +11,7 @@ type Strategy interface {
 	Update(endpoints map[types.Endpoint]*types.Attribute)
 }
 
-type StrategyBuilder interface {
+type Builder interface {
 	Build(s *types.Selector) (Strategy, error)
 }
 

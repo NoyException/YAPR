@@ -167,6 +167,6 @@ func (y *YaprSDK) GetEndpointsWithAttribute(selectorName string) map[types.Endpo
 }
 
 // RegisterRoutingStrategy 注册自定义路由策略
-func (y *YaprSDK) RegisterRoutingStrategy(name string, strategyBuilder strategy.StrategyBuilder) {
+func (y *YaprSDK) RegisterRoutingStrategy(name string, strategyBuilder strategy.Builder) {
 	core.RegisterStrategyBuilder(name, strategyBuilder)
 }

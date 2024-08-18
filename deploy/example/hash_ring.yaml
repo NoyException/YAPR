@@ -24,4 +24,5 @@ yapr:
     - name: "echo-ring"
       service: "echosvr"
       port: 9090
-      strategy: hash_ring"
+      key: "x-uid"
+      strategy: "hash_ring"

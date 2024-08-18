@@ -5,9 +5,9 @@ import (
 	"noy/router/pkg/yapr/core/strategy"
 )
 
-var strategyBuilders = make(map[string]strategy.StrategyBuilder)
+var strategyBuilders = make(map[string]strategy.Builder)
 
-func RegisterStrategyBuilder(name string, builder strategy.StrategyBuilder) {
+func RegisterStrategyBuilder(name string, builder strategy.Builder) {
 	strategyBuilders[name] = builder
 }
 
