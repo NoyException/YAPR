@@ -32,14 +32,17 @@ sh start.sh -s 路由策略名
 
 ##### 压测
 
-单纯压测客户端SDK的性能，不真实发送请求，参数可都不填
-
-```shell
-sh stress.sh -s 路由策略名 -c CPU核数 -n 并发数
-```
-
 使用tcp并自定义协议压测，参数可都不填
 
 ```shell
-sh tcp.sh -s 路由策略名 -c CPU核数 -n 并发数 -d 数据包大小 -u 是否启用sdk(对照用)
+sh tcp.sh -s 路由策略名 -c CPU核数 -n 并发数 -t 总请求数 -d 数据包大小 -r 是否上报promethus -u 是否启用sdk(对照用)
 ```
+
+单纯压测客户端SDK的性能，不真实发送请求，参数可都不填。需要注意的是，压测direct策略前，需要先用tcp压测direct一遍，以便在数据库中先填充好每个user路由到的端点信息
+
+需要注意的是，单纯压测SDK时，不支持least_request策略（因为没有服务端上报请求数）
+
+```shell
+sh stress.sh -s 路由策略名 -c CPU核数 -n 并发数 -t 总请求数
+```
+

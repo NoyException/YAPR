@@ -23,7 +23,7 @@ var (
 	configPath  = flag.String("configPath", "yapr.yaml", "config file path")
 	id          = flag.Int("id", 1, "server id, must be unique")
 	concurrency = flag.Int("concurrency", 200, "goroutines")
-	totalReq    = flag.Int("totalReq", 10000000, "total request")
+	totalReq    = flag.Int("totalReq", 20000000, "total request")
 	cpus        = flag.Int("cpus", 4, "cpus")
 
 	name string

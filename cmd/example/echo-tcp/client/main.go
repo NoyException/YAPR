@@ -26,13 +26,14 @@ var sdk *yaprsdk.YaprSDK
 
 var (
 	// 统一参数
-	configPath  = flag.String("configPath", "yapr.yaml", "config file path")
-	id          = flag.Int("id", 1, "server id, must be unique")
-	concurrency = flag.Int("concurrency", 200, "goroutines")
-	totalReq    = flag.Int("totalReq", 2000000, "total request")
-	dataSize    = flag.String("dataSize", "100B", "data size")
-	useYapr     = flag.Bool("useYapr", true, "use yapr")
-	cpus        = flag.Int("cpus", 4, "cpus")
+	configPath    = flag.String("configPath", "yapr.yaml", "config file path")
+	id            = flag.Int("id", 1, "server id, must be unique")
+	concurrency   = flag.Int("concurrency", 200, "goroutines")
+	totalReq      = flag.Int("totalReq", 2000000, "total request")
+	dataSize      = flag.String("dataSize", "100B", "data size")
+	useYapr       = flag.Bool("useYapr", true, "use yapr")
+	cpus          = flag.Int("cpus", 4, "cpus")
+	recordMetrics = flag.Bool("recordMetrics", false, "record metrics using prometheus")
 
 	name string
 
@@ -145,7 +146,7 @@ func main() {
 	}()
 
 	sdk = yaprsdk.Init(*configPath)
-	go metrics.Init(8080, true)
+	go metrics.Init(8080, !*recordMetrics)
 
 	endpoints := sdk.GetEndpoints("echosvr")
 	addrs := make([]string, 0)

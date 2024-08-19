@@ -8,13 +8,15 @@ cd deploy
 STRATEGY="random"
 CPUS=2
 CONCURRENCY=200
+TOTAL_REQ=20000000
 
-while getopts c:n:s: flag
+while getopts c:n:s:t: flag
 do
     case "${flag}" in
         c) CPUS=${OPTARG};;
         n) CONCURRENCY=${OPTARG};;
         s) STRATEGY=${OPTARG};;
+        t) TOTAL_REQ=${OPTARG};;
         *) echo "Unknown parameter passed: ${flag}";;
     esac
 done
@@ -42,7 +44,7 @@ docker-compose up -d
 echo "1000个endpoint注册完毕"
 sleep 1
 echo "压测开始，当前路由策略为${STRATEGY}"
-echo "当前CPU核数为$CPUS"
-./client --cpus="${CPUS}" --concurrency="${CONCURRENCY}" &
+echo "当前CPU核数为$CPUS，并发量为$CONCURRENCY，总请求数为$TOTAL_REQ"
+./client --cpus="${CPUS}" --concurrency="${CONCURRENCY}" --totalReq="${TOTAL_REQ}" &
 
 wait

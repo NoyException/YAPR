@@ -10,19 +10,32 @@ DATA_SIZE="100B"
 CPUS=2
 CONCURRENCY=200
 USE_YAPR=true
+RECORD_METRICS=false
+TOTAL_REQ=0
 
-while getopts c:d:n:s:u: flag
+while getopts c:d:n:r:s:t:u: flag
 do
     case "${flag}" in
         c) CPUS=${OPTARG};;
         d) DATA_SIZE=${OPTARG};;
         n) CONCURRENCY=${OPTARG};;
+        r) RECORD_METRICS=${OPTARG};;
         s) STRATEGY=${OPTARG};;
+        t) TOTAL_REQ=${OPTARG};;
         u) USE_YAPR=${OPTARG};;
         *) echo "Unknown parameter passed: ${flag}";;
     esac
 done
 cp "./example/${STRATEGY}.yaml" "./yapr.yaml"
+
+# 设置默认TOTAL_REQ
+if [ "${TOTAL_REQ}" == "0" ]; then
+  if [ "${RECORD_METRICS}" == "true" ]; then
+    TOTAL_REQ=20000000
+  else
+    TOTAL_REQ=2000000
+  fi
+fi
 
 # 编译
 CGO_ENABLED=0 go build -o server ../cmd/example/echo-tcp/server/main.go
@@ -46,7 +59,7 @@ docker-compose up -d
 echo "1000个endpoint注册完毕"
 sleep 2s
 echo "压测开始，当前路由策略为${STRATEGY}"
-echo "当前CPU核数为$CPUS"
-./client --cpus="${CPUS}" --concurrency="${CONCURRENCY}" --dataSize="${DATA_SIZE}" --useYapr="${USE_YAPR}"
+echo "当前CPU核数为$CPUS，并发量为$CONCURRENCY，总请求数为$TOTAL_REQ，数据大小为$DATA_SIZE"
+./client --cpus="${CPUS}" --concurrency="${CONCURRENCY}" --totalReq="${TOTAL_REQ}" --dataSize="${DATA_SIZE}" --recordMetrics="${RECORD_METRICS}" --useYapr="${USE_YAPR}"
 
 wait
