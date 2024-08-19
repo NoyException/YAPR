@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"google.golang.org/grpc/status"
-	"noy/router/pkg/yapr/logger"
 	"strings"
 )
 
@@ -42,7 +41,6 @@ func UnmarshalError(s string) *ErrWithCode {
 func As(err error) (*ErrWithCode, bool) {
 	for ; err != nil; err = errors.Unwrap(err) {
 		s := err.Error()
-		logger.Debugf("As: %s", s)
 		if !strings.HasPrefix(s, "{") {
 			continue
 		}

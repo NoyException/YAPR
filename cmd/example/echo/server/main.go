@@ -46,11 +46,16 @@ func (e *EchoServer) Echo(ctx context.Context, request *echopb.EchoRequest) (*ec
 		if len(values) > 0 {
 			uid := values[0]
 			logger.Debugf("uid: %s", uid)
-			//success, old, err := yaprsdk.MustInstance().SetCustomRoute("echo-dir", uid, e.Endpoint, 0, false)
-			//if err != nil {
-			//	logger.Errorf("set custom route error: %v", err)
-			//}
-			//logger.Debugf("set custom route success: %v, old: %v", success, old)
+			if len(md.Get("set-custom-route")) > 0 {
+				success, old, err := yaprsdk.MustInstance().SetCustomRoute("echo-dir", uid, e.Endpoint, 0, false)
+				if err != nil {
+					logger.Errorf("set custom route error: %v", err)
+				}
+				if !success {
+					logger.Errorf("set custom route failed: route already exists")
+				}
+				logger.Infof("set custom route for %v to %v success, old: %v", uid, e.Endpoint, old)
+			}
 		}
 	}
 	metrics.IncRequestTotal(name, "echo/Echo")
