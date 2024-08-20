@@ -107,7 +107,7 @@ func main() {
 				if err != nil {
 					logger.Errorf(err.Error())
 				} else {
-					logger.Debugf("UID-%s: %s", uid, response.Message)
+					logger.Debugf("UID-%s %s", uid, response.Message)
 				}
 				time.Sleep(time.Duration(*interval) * time.Millisecond)
 				cancel()
