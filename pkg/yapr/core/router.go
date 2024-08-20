@@ -124,7 +124,7 @@ func (r *Router) Route(target *types.MatchTarget) (string, *types.Endpoint, uint
 
 			switch handler.Solution {
 			case types.SolutionPass:
-				logger.Infof("selector %s select failed: %v, move to the next rule", rule.Selector, selectErr)
+				logger.Debugf("selector %s select failed, move to the next rule", rule.Selector)
 				continue
 			case types.SolutionThrow:
 				if handler.Code != nil || handler.Message != nil {
