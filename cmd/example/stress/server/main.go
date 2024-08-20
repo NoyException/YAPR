@@ -36,7 +36,7 @@ func main() {
 
 	name = fmt.Sprintf("svr-%d", *id)
 
-	logger.ReplaceDefault(logger.NewWithLogFile(logger.InfoLevel, fmt.Sprintf("/.logs/%s.log", name)))
+	logger.ReplaceDefault(logger.NewWithLogFile(logger.InfoLevel, fmt.Sprintf("./.logs/%s.log", name)))
 	defer func() {
 		err := logger.Sync()
 		if err != nil {

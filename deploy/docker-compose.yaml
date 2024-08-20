@@ -41,7 +41,7 @@ services:
     networks:
       - app-tier
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "host.docker.internal:172.24.242.247"
   grafana:
     image: grafana/grafana
     container_name: grafana

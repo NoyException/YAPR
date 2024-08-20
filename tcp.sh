@@ -55,7 +55,11 @@ cleanup() {
 docker-compose up -d
 
 # 启动server和client
-./server --endpointCnt=1000 &
+./server --id=1 --weight=1 --endpointCnt=1000 &
+if [ "${RECORD_METRICS}" == "true" ]; then
+    ./server --id=2 --weight=2 --endpointCnt=1000 &
+    ./server --id=3 --weight=3 --endpointCnt=1000 &
+fi
 echo "1000个endpoint注册完毕"
 sleep 2s
 echo "压测开始，当前路由策略为${STRATEGY}"

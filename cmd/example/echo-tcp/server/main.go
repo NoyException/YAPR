@@ -24,6 +24,7 @@ var (
 	id           = flag.Int("id", 1, "server id, must be unique")
 	ip           = flag.String("ip", "localhost", "node ip address, must be unique")
 	endpointCnt  = flag.Int("endpointCnt", 1000, "endpoint count")
+	weight       = flag.Int("weight", 1, "default weight for all endpoints")
 	gracefulStop = flag.Bool("gracefulStop", true, "enable graceful stop")
 
 	name string
@@ -36,7 +37,7 @@ func main() {
 
 	name = fmt.Sprintf("svr-%d", *id)
 
-	logger.ReplaceDefault(logger.NewWithLogFile(logger.InfoLevel, fmt.Sprintf("/.logs/%s.log", name)))
+	logger.ReplaceDefault(logger.NewWithLogFile(logger.InfoLevel, fmt.Sprintf("./.logs/%s.log", name)))
 	defer func() {
 		err := logger.Sync()
 		if err != nil {
@@ -79,6 +80,8 @@ func main() {
 		endpoint := sdk.NewEndpointWithPort(*ip, port)
 		endpoints = append(endpoints, endpoint)
 	}
+
+	setWeight(endpoints)
 
 	if *gracefulStop {
 		// 捕获 SIGTERM 信号
@@ -172,13 +175,14 @@ func handleConnection(conn net.Conn) *Server {
 			d := echo_tcp.UnmarshalData(data)
 			response.sent, err = sdk.OnRequestReceived(d.Headers)
 			d.Err = err
+			metrics.IncRequestTotal(name, "echo/Echo")
 			// 业务逻辑：当自定义路由没设置时，使用随机路由路由到了这里，于是设置自定义路由永远路由到这里
 			if _, ok := d.Headers["set-custom-route"]; ok {
 				go func() {
 					rawEndpoint := d.Headers["yapr-endpoint"]
 					uid := d.Headers["x-uid"]
 					endpoint := types.EndpointFromString(rawEndpoint)
-					_, _, err := sdk.SetCustomRoute("echo-dir", uid, endpoint, 0, false)
+					_, err := sdk.SetCustomRoute("echo-dir", uid, endpoint, nil, 0)
 					if err != nil {
 						logger.Errorf("SetCustomRoute error: %v", err)
 					} else {
@@ -221,4 +225,17 @@ func handleConnection(conn net.Conn) *Server {
 	}()
 
 	return server
+}
+
+func setWeight(endpoints []*types.Endpoint) {
+	logger.Infof("weight: %d", *weight)
+	for _, endpoint := range endpoints {
+		w := uint32(*weight)
+		err := sdk.SetEndpointAttribute(endpoint, "echo-weighted", &types.AttributeInSelector{
+			Weight: &w,
+		})
+		if err != nil {
+			panic(err)
+		}
+	}
 }

@@ -24,7 +24,7 @@ type YaprSDK struct {
 }
 
 // Init 初始化路由配置
-func Init(configPath string) *YaprSDK {
+func Init(configPath string, initGrpc bool) *YaprSDK {
 	if yaprSDK != nil {
 		return yaprSDK
 	}
@@ -48,8 +48,10 @@ func Init(configPath string) *YaprSDK {
 	core.RegisterStrategyBuilder(types.StrategyDirect, &builtin.DirectStrategyBuilder{})
 	core.RegisterStrategyBuilder(types.StrategyCustomLua, &builtin.CustomLuaStrategyBuilder{})
 
-	yaprgrpc.InitResolver()
-	yaprgrpc.InitBalancer()
+	if initGrpc {
+		yaprgrpc.InitResolver()
+		yaprgrpc.InitBalancer()
+	}
 
 	yaprSDK = &YaprSDK{
 		pod: pod,
@@ -131,19 +133,19 @@ func (y *YaprSDK) route(routerName string, match *types.MatchTarget) (serviceNam
 	return
 }
 
-// SetCustomRoute 设置自定义路由
-func (y *YaprSDK) SetCustomRoute(selectorName, headerValue string, endpoint *types.Endpoint, timeout int64, ignoreExisting bool) (bool, *types.Endpoint, error) {
+// SetCustomRoute 设置自定义路由，old为nil则表示只在没被设置时设置，timeout为0则表示永不超时
+func (y *YaprSDK) SetCustomRoute(selectorName, headerValue string, endpoint, old *types.Endpoint, timeout int64, ignoreExisting bool) (*types.Endpoint, error) {
 	st := store.MustStore()
-	success, old, err := st.SetCustomRoute(selectorName, headerValue, endpoint, timeout, ignoreExisting)
+	realOld, err := st.SetCustomRoute(selectorName, headerValue, endpoint, old, timeout)
 	if err != nil {
-		return false, nil, err
+		return nil, err
 	}
-	if success && old != nil && !types.EqualEndpoints(old, endpoint) {
+	if old != nil && realOld == nil {
 		if err := st.NotifyMigration(selectorName, headerValue, old, endpoint); err != nil {
 			logger.Errorf("notify migration failed: %v", err)
 		}
 	}
-	return success, old, nil
+	return realOld, nil
 }
 
 // GetEndpoints 获取路由配置，用于自定义路由

@@ -19,7 +19,7 @@ type Store interface {
 	SetEndpointAttribute(endpoint *types.Endpoint, selector string, attribute *types.AttributeInSelector) error
 	//RegisterAttributeChangeListener(listener func(endpoint *types.Endpoint, selector string, attribute *types.AttributeInSelector))
 
-	SetCustomRoute(selectorName, headerValue string, endpoint *types.Endpoint, timeout int64, ignoreExisting bool) (bool, *types.Endpoint, error)
+	SetCustomRoute(selectorName, headerValue string, endpoint, old *types.Endpoint, timeout int64) (*types.Endpoint, error)
 	GetCustomRoute(selectorName, headerValue string) (*types.Endpoint, error)
 	RemoveCustomRoute(selectorName, headerValue string) error
 

@@ -41,7 +41,7 @@ func main() {
 	runtime.GOMAXPROCS(*cpus)
 	name = fmt.Sprintf("cli-%d", *id)
 
-	logger.ReplaceDefault(logger.NewWithLogFile(logger.DebugLevel, fmt.Sprintf("/.logs/cli-%d.log", *id)))
+	logger.ReplaceDefault(logger.NewWithLogFile(logger.DebugLevel, fmt.Sprintf("./.logs/cli-%d.log", *id)))
 	defer func() {
 		err := logger.Sync()
 		if err != nil {
@@ -58,7 +58,7 @@ func main() {
 		os.Exit(0)
 	}()
 
-	sdk := yaprsdk.Init(*configPath)
+	sdk := yaprsdk.Init(*configPath, true)
 
 	var clients []echopb.EchoServiceClient
 	target := "yapr:///echo"
@@ -99,7 +99,9 @@ func main() {
 				ctx2, cancel := context.WithTimeout(ctx, 5*time.Second)
 				// 记录用时
 				start := time.Now()
+				// 触发RPC调用
 				response, err := client.Echo(ctx2, data)
+
 				metrics.ObserveRequestDuration("echo", time.Since(start).Seconds())
 				metrics.IncRequestTotal(name, "echo/Echo")
 				if err != nil {

@@ -137,7 +137,7 @@ func main() {
 	runtime.GOMAXPROCS(*cpus)
 	name = fmt.Sprintf("cli-%d", *id)
 
-	logger.ReplaceDefault(logger.NewWithLogFile(logger.InfoLevel, fmt.Sprintf("/.logs/cli-%d.log", *id)))
+	logger.ReplaceDefault(logger.NewWithLogFile(logger.InfoLevel, fmt.Sprintf("./.logs/cli-%d.log", *id)))
 	defer func() {
 		err := logger.Sync()
 		if err != nil {
@@ -145,7 +145,7 @@ func main() {
 		}
 	}()
 
-	sdk = yaprsdk.Init(*configPath)
+	sdk = yaprsdk.Init(*configPath, false)
 	go metrics.Init(8080, !*recordMetrics)
 
 	endpoints := sdk.GetEndpoints("echosvr")

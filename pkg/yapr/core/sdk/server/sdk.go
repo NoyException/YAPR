@@ -56,9 +56,8 @@ func Init(configPath, pod string) *YaprSDK {
 		pod:                pod,
 
 		routingTableMu: sync.RWMutex{},
-
-		cancel: st.RegisterMigrationListener(yaprSDK.onMigration),
 	}
+	yaprSDK.cancel = st.RegisterMigrationListener(yaprSDK.onMigration)
 	return yaprSDK
 }
 
@@ -85,7 +84,6 @@ func (y *YaprSDK) onMigration(selectorName, headerValue string, from, to *types.
 	if to != nil {
 		if _, ok := y.endpoints[*to]; ok && !types.EqualEndpoints(to, y.routingTable.GetRoute(selectorName, headerValue)) {
 			relative = true
-			logger.Infof("migration: %v, %v, %v", selectorName, headerValue, to)
 			y.routingTable.AddRoute(selectorName, headerValue, to)
 		}
 	}
@@ -240,20 +238,20 @@ func (y *YaprSDK) reportRPS(endpoint *types.Endpoint, selector string, rps uint3
 	})
 }
 
-// SetCustomRoute 设置自定义路由
-func (y *YaprSDK) SetCustomRoute(selectorName, headerValue string, endpoint *types.Endpoint, timeout int64, ignoreExisting bool) (bool, *types.Endpoint, error) {
+// SetCustomRoute 设置自定义路由，old为nil则表示只在没被设置时设置，timeout为0则表示永不超时
+func (y *YaprSDK) SetCustomRoute(selectorName, headerValue string, endpoint, old *types.Endpoint, timeout int64) (*types.Endpoint, error) {
 	st := store.MustStore()
-	success, old, err := st.SetCustomRoute(selectorName, headerValue, endpoint, timeout, ignoreExisting)
+	realOld, err := st.SetCustomRoute(selectorName, headerValue, endpoint, old, timeout)
 	if err != nil {
-		return false, nil, err
+		return nil, err
 	}
-	if success && old != nil && !types.EqualEndpoints(old, endpoint) {
+	if old != nil && realOld == nil {
 		y.onMigration(selectorName, headerValue, old, endpoint)
 		if err := st.NotifyMigration(selectorName, headerValue, old, endpoint); err != nil {
 			logger.Errorf("notify migration failed: %v", err)
 		}
 	}
-	return success, old, nil
+	return realOld, nil
 }
 
 func (y *YaprSDK) SetMigrationListener(listener func(selectorName, headerValue string, from, to *types.Endpoint)) {

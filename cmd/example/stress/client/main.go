@@ -34,7 +34,7 @@ func main() {
 	runtime.GOMAXPROCS(*cpus)
 	name = fmt.Sprintf("cli-%d", *id)
 
-	logger.ReplaceDefault(logger.NewWithLogFile(logger.InfoLevel, fmt.Sprintf("/.logs/cli-%d.log", *id)))
+	logger.ReplaceDefault(logger.NewWithLogFile(logger.InfoLevel, fmt.Sprintf("./.logs/cli-%d.log", *id)))
 	defer func() {
 		err := logger.Sync()
 		if err != nil {
@@ -51,7 +51,7 @@ func main() {
 		os.Exit(0)
 	}()
 
-	sdk = yaprsdk.Init(*configPath)
+	sdk = yaprsdk.Init(*configPath, false)
 
 	playerCnt := 1000
 	uids := make([]string, playerCnt)

@@ -467,7 +467,7 @@ func (s *Impl) RegisterAttributeChangeListener(listener func(endpoint *types.End
 	}()
 }
 
-func (s *Impl) SetCustomRoute(selectorName, headerValue string, endpoint *types.Endpoint, timeout int64, ignoreExisting bool) (bool, *types.Endpoint, error) {
+func (s *Impl) SetCustomRoute(selectorName, headerValue string, endpoint, old *types.Endpoint, timeout int64) (*types.Endpoint, error) {
 	if s.setCustomRouteSha == "" {
 		s.mu.Lock()
 		if s.setCustomRouteSha == "" {
@@ -475,8 +475,8 @@ func (s *Impl) SetCustomRoute(selectorName, headerValue string, endpoint *types.
 local selectorName = KEYS[1]
 local headerValue = KEYS[2]
 local endpoint = ARGV[1]
-local timeout = tonumber(ARGV[2])
-local ignoreExisting = ARGV[3]
+local old = ARGV[2]
+local timeout = tonumber(ARGV[3])
 local currentTime = redis.call("TIME")
 local currentTimeMillis = tonumber(currentTime[1]) * 1000 + tonumber(currentTime[2]) / 1000
 local deadline
@@ -499,14 +499,14 @@ if existing ~= nil and existingDDL > 0 and currentTimeMillis >= existingDDL then
 	existing = nil
 end
 
-if existing ~= nil and ignoreExisting == "0" then
-	return {0, existing} -- 键值对已存在且不忽略
+if existing ~= nil and existing ~= old then
+	return existing -- 键值对已存在且不等于旧值，插入失败
 end
 
 -- 插入新的键值对和超时时间
 redis.call("HSET", endpointTable, headerValue, endpoint)
 redis.call("HSET", ddlTable, headerValue, deadline)
-return {1, existing} -- 键值对不存在/已过期/忽略已存在，插入成功
+return -- 键值对不存在/已过期/与旧值匹配，插入成功
 `
 			// 计算 Lua 脚本的 SHA1 哈希值
 			sha, err := s.redisClient.ScriptLoad(context.Background(), luaScript).Result()
@@ -519,19 +519,20 @@ return {1, existing} -- 键值对不存在/已过期/忽略已存在，插入成
 	}
 
 	// 执行 Lua 脚本
-	res, err := s.redisClient.EvalSha(context.Background(), s.setCustomRouteSha, []string{selectorName, headerValue}, endpoint.String(), timeout, ignoreExisting).Result()
+	oldStr := ""
+	if old != nil {
+		oldStr = old.String()
+	}
+	res, err := s.redisClient.EvalSha(context.Background(), s.setCustomRouteSha,
+		[]string{selectorName, headerValue}, endpoint.String(), oldStr, timeout).Result()
+	// 设置成功
+	if errors.Is(err, redis.Nil) {
+		return nil, nil
+	}
 	if err != nil {
-		return false, nil, err
+		return nil, err
 	}
-	resArr := res.([]interface{})
-	inserted := resArr[0].(int64) == 1
-	var existing *types.Endpoint
-	if len(resArr) < 2 {
-		existing = nil
-	} else if ep, ok := resArr[1].(string); ok {
-		existing = types.EndpointFromString(ep)
-	}
-	return inserted, existing, nil
+	return types.EndpointFromString(res.(string)), nil
 }
 
 func (s *Impl) GetCustomRoute(selectorName, headerValue string) (*types.Endpoint, error) {

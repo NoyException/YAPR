@@ -107,6 +107,10 @@ func (r *Router) Route(target *types.MatchTarget) (string, *types.Endpoint, uint
 				if h, ok := rule.Catch[types.RuleErrorEndpointUnavailable]; ok {
 					handler = h
 				}
+			} else if errors.Is(selectErr, errcode.ErrEndpointRPSLimit) {
+				if h, ok := rule.Catch[types.RuleErrorEndpointRPSLimit]; ok {
+					handler = h
+				}
 			} else {
 				if h, ok := rule.Catch[types.RuleErrorDefault]; ok {
 					handler = h

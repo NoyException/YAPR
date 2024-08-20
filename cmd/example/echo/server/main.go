@@ -47,14 +47,20 @@ func (e *EchoServer) Echo(ctx context.Context, request *echopb.EchoRequest) (*ec
 			uid := values[0]
 			logger.Debugf("uid: %s", uid)
 			if len(md.Get("set-custom-route")) > 0 {
-				success, old, err := yaprsdk.MustInstance().SetCustomRoute("echo-dir", uid, e.Endpoint, 0, false)
+				old, err := yaprsdk.MustInstance().SetCustomRoute("echo-dir", uid, e.Endpoint, nil, 0)
 				if err != nil {
 					logger.Errorf("set custom route error: %v", err)
+				} else if old != nil {
+					logger.Errorf("set custom route failed: route already exists: %v", old)
+					if len(md.Get("overwrite")) > 0 {
+						old, err = yaprsdk.MustInstance().SetCustomRoute("echo-dir", uid, e.Endpoint, old, 0)
+						if old != nil || err != nil {
+							logger.Errorf("overwrite custom route error: %v", err)
+						}
+					}
+				} else {
+					logger.Infof("set custom route for %v to %v success", uid, e.Endpoint)
 				}
-				if !success {
-					logger.Errorf("set custom route failed: route already exists")
-				}
-				logger.Infof("set custom route for %v to %v success, old: %v", uid, e.Endpoint, old)
 			}
 		}
 	}
@@ -71,7 +77,7 @@ func main() {
 
 	name = fmt.Sprintf("svr-%d", *id)
 
-	logger.ReplaceDefault(logger.NewWithLogFile(logger.InfoLevel, fmt.Sprintf("/.logs/%s.log", name)))
+	logger.ReplaceDefault(logger.NewWithLogFile(logger.InfoLevel, fmt.Sprintf("./.logs/%s.log", name)))
 	defer func() {
 		err := logger.Sync()
 		if err != nil {

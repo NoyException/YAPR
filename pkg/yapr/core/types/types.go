@@ -105,9 +105,8 @@ type RuleError string
 const (
 	RuleErrorDefault             = RuleError("default")
 	RuleErrorNoEndpoint          = RuleError("no_endpoint")
-	RuleErrorSelectFailed        = RuleError("select_failed")
-	RuleErrorTimeout             = RuleError("timeout")
 	RuleErrorEndpointUnavailable = RuleError("unavailable")
+	RuleErrorEndpointRPSLimit    = RuleError("rps_limit")
 )
 
 type Solution string

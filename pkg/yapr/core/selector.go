@@ -131,8 +131,13 @@ func (s *Selector) Select(target *types.MatchTarget) (endpoint *types.Endpoint, 
 	s.strategyMu.RLock()
 	endpoint, appendHeaders, err := s.strategy.Select(target)
 	s.strategyMu.RUnlock()
-	if endpoint != nil && err == nil && !service.IsAvailable(endpoint) {
-		err = errcode.ErrEndpointUnavailable
+	if endpoint != nil && err == nil {
+		attribute := service.GetAttribute(endpoint, s.Name)
+		if !attribute.Available {
+			err = errcode.ErrEndpointUnavailable
+		} else if s.MaxRequests != nil && attribute.RPS != nil && *attribute.RPS >= *s.MaxRequests {
+			err = errcode.ErrEndpointRPSLimit
+		}
 	}
 	if appendHeaders != nil {
 		for k, v := range appendHeaders {

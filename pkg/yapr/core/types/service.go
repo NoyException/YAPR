@@ -140,17 +140,6 @@ func (s *Service) SetAttributeInSelector(endpoint *Endpoint, selector string, at
 	s.setDirty()
 }
 
-func (s *Service) IsAvailable(endpoint *Endpoint) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	m, ok := s.attrMap[*endpoint]
-	if !ok {
-		return false
-	}
-	return m.Available
-}
-
 func (s *Service) Version() uint64 {
 	if s.dirty {
 		s.update()
