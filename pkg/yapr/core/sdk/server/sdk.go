@@ -24,8 +24,7 @@ type YaprSDK struct {
 	endpoints          map[types.Endpoint]struct{} // 本地服务端的所有Endpoint
 	endpointsByService map[string][]*types.Endpoint
 
-	routingTable   RoutingTable // 与本地服务端的Endpoint有关的路由表
-	routingTableMu sync.RWMutex
+	routingTable *RoutingTable // 与本地服务端的Endpoint有关的路由表
 
 	requestCounter         sync.Map // selector_endpoint -> atomic.Int32
 	leastRequestReportMark sync.Map // selector_endpoint -> struct{}
@@ -54,8 +53,6 @@ func Init(configPath, pod string) *YaprSDK {
 		endpointsByService: make(map[string][]*types.Endpoint),
 		routingTable:       NewRoutingTable(),
 		pod:                pod,
-
-		routingTableMu: sync.RWMutex{},
 	}
 	yaprSDK.cancel = st.RegisterMigrationListener(yaprSDK.onMigration)
 	return yaprSDK
@@ -74,7 +71,6 @@ func (y *YaprSDK) onMigration(selectorName, headerValue string, from, to *types.
 	}
 	relative := false
 
-	y.routingTableMu.Lock()
 	if from != nil {
 		if _, ok := y.endpoints[*from]; ok {
 			relative = true
@@ -87,7 +83,6 @@ func (y *YaprSDK) onMigration(selectorName, headerValue string, from, to *types.
 			y.routingTable.AddRoute(selectorName, headerValue, to)
 		}
 	}
-	y.routingTableMu.Unlock()
 
 	if relative && y.migrationListener != nil {
 		y.migrationListener(selectorName, headerValue, from, to)
@@ -135,20 +130,10 @@ func (y *YaprSDK) OnRequestReceived(headers map[string]string) (onResponseSent f
 	switch strategy {
 	case types.StrategyDirect:
 		headerValue := headers["yapr-header-value"]
-
-		y.routingTableMu.RLock()
+		lastEndpoint := headers["yapr-last-endpoint"]
 		expectEndpoint := y.routingTable.GetRoute(selectorName, headerValue)
-		y.routingTableMu.RUnlock()
-
-		if expectEndpoint == nil {
-			expectEndpoint, err = store.MustStore().GetCustomRoute(selectorName, headerValue)
-			if err != nil {
-				logger.Errorf("get custom route failed: %v", err)
-				return nil, err
-			}
-			y.routingTableMu.Lock()
-			y.routingTable.AddRoute(selectorName, headerValue, expectEndpoint)
-			y.routingTableMu.Unlock()
+		if expectEndpoint == nil || types.EqualEndpoints(types.EndpointFromString(lastEndpoint), endpoint) {
+			expectEndpoint = y.routingTable.Refresh(selectorName, headerValue)
 		}
 
 		if !types.EqualEndpoints(endpoint, expectEndpoint) {

@@ -110,7 +110,7 @@ func (s *Selector) Select(target *types.MatchTarget) (endpoint *types.Endpoint, 
 		s.mu.Unlock()
 	}
 
-	if time.Since(s.lastUpdate) > 100*time.Millisecond {
+	if time.Since(s.lastUpdate) > 50*time.Millisecond {
 		version := service.Version()
 		if version > s.lastVersion {
 			s.mu.Lock()

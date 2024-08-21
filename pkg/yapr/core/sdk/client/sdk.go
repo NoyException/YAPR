@@ -74,14 +74,15 @@ func (y *YaprSDK) GRPCClientInterceptor(
 	invoker grpc.UnaryInvoker,
 	opts ...grpc.CallOption,
 ) error {
-	return y.invoke(func() error {
+	return y.invoke(func(headers map[string]string) error {
 		return invoker(ctx, method, req, reply, cc, opts...)
 	})
 }
 
-func (y *YaprSDK) invoke(invoker func() error) error {
+func (y *YaprSDK) invoke(invoker func(headers map[string]string) error) error {
+	headers := make(map[string]string)
 	for i := 0; i < 3; i++ {
-		err := invoker()
+		err := invoker(headers)
 		if err == nil {
 			return nil
 		}
@@ -110,6 +111,9 @@ func (y *YaprSDK) invoke(invoker func() error) error {
 			return err
 		}
 		selector.NotifyRetry(headerValue)
+
+		// 记录上次被打回的来源
+		headers["yapr-last-endpoint"] = errWithCode.Data["endpoint"]
 		logger.Debugf("retry %d times", i+1)
 	}
 	return errcode.ErrMaxRetries
@@ -121,7 +125,12 @@ func (y *YaprSDK) Invoke(routerName string, match *types.MatchTarget, requestSen
 	if err != nil {
 		return err
 	}
-	return requestSender(serviceName, endpoint, port, headers)
+	return y.invoke(func(h map[string]string) error {
+		for k, v := range h {
+			headers[k] = v
+		}
+		return requestSender(serviceName, endpoint, port, headers)
+	})
 }
 
 func (y *YaprSDK) route(routerName string, match *types.MatchTarget) (serviceName string, endpoint *types.Endpoint, port uint32, headers map[string]string, err error) {
