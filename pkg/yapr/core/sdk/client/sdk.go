@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"noy/router/pkg/yapr/core"
 	"noy/router/pkg/yapr/core/config"
 	"noy/router/pkg/yapr/core/errcode"
@@ -75,6 +76,19 @@ func (y *YaprSDK) GRPCClientInterceptor(
 	opts ...grpc.CallOption,
 ) error {
 	return y.invoke(func(headers map[string]string) error {
+		if headers != nil && len(headers) > 0 {
+			// 如果ctx里有metadata，将headers加入其中；否则创建一个新的metadata
+			md, exists := metadata.FromOutgoingContext(ctx)
+			if exists {
+				for k, v := range headers {
+					md[k] = append(md[k], v)
+				}
+				ctx = metadata.NewOutgoingContext(ctx, md)
+			} else {
+				md = metadata.New(headers)
+				ctx = metadata.NewOutgoingContext(ctx, md)
+			}
+		}
 		return invoker(ctx, method, req, reply, cc, opts...)
 	})
 }
